@@ -1,0 +1,628 @@
+import os
+import sys
+import threading
+import time
+from queue import Queue
+from pathlib import Path
+
+from PyQt6.QtCore import QTimer, pyqtSignal
+from PyQt6.QtWidgets import (
+    QApplication,
+    QCheckBox,
+    QDialog,
+    QFileDialog,
+    QFrame,
+    QGridLayout,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QMainWindow,
+    QMessageBox,
+    QPushButton,
+    QProgressBar,
+    QTableWidget,
+    QTableWidgetItem,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
+)
+
+
+FILE_TYPES = {
+    "Video": {".mp4", ".avi", ".mov", ".mkv", ".webm"},
+    "Audio": {".mp3", ".wav", ".flac", ".aac", ".ogg", ".m4a"},
+    "PDF": {".pdf"},
+    "Word": {".doc", ".docx", ".odt", ".rtf"},
+}
+
+
+def format_file_size(size):
+    if size < 1024:
+        return f"{size} B"
+    if size < 1024 * 1024:
+        return f"{size / 1024:.0f} KB"
+    if size < 1024 * 1024 * 1024:
+        return f"{size / (1024 * 1024):.0f} MB"
+    return f"{size / (1024 * 1024 * 1024):.1f} GB"
+
+
+def format_modified_time(path):
+    return time.strftime("%d.%m.%Y %H:%M", time.localtime(path.stat().st_mtime))
+
+
+class CategoryDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Wybierz kategorie")
+        self.setModal(True)
+        self.resize(360, 230)
+
+        layout = QVBoxLayout(self)
+
+        title = QLabel("Z jakich typow plikow wyciagac metadane?")
+        title.setObjectName("DialogTitle")
+        layout.addWidget(title)
+
+        hint = QLabel("Domyslnie wszystkie kategorie sa zaznaczone.")
+        hint.setObjectName("MutedText")
+        layout.addWidget(hint)
+
+        self.checkboxes = {}
+        for category in FILE_TYPES:
+            checkbox = QCheckBox(category)
+            checkbox.setChecked(True)
+            self.checkboxes[category] = checkbox
+            layout.addWidget(checkbox)
+
+        buttons = QHBoxLayout()
+        buttons.addStretch()
+
+        self.exit_button = QPushButton("Exit")
+        self.exit_button.clicked.connect(self.reject)
+        buttons.addWidget(self.exit_button)
+
+        self.ok_button = QPushButton("OK")
+        self.ok_button.setDefault(True)
+        self.ok_button.clicked.connect(self.accept)
+        buttons.addWidget(self.ok_button)
+
+        layout.addLayout(buttons)
+
+    def selected_categories(self):
+        return [
+            category
+            for category, checkbox in self.checkboxes.items()
+            if checkbox.isChecked()
+        ]
+
+
+class ExtractionWorker:
+    def __init__(self, category, files, events):
+        self.category = category
+        self.files = files
+        self.events = events
+
+    def run(self):
+        self.events.put(("status", self.category, "in progress"))
+        extracted = []
+
+        try:
+            for index, path in enumerate(self.files):
+                time.sleep(0.18)
+                extracted.append(
+                    {
+                        "name": path.name,
+                        "category": self.category,
+                        "extension": path.suffix.lower() or "brak",
+                        "modified": format_modified_time(path),
+                        "size": format_file_size(path.stat().st_size),
+                        "path": str(path),
+                    }
+                )
+
+                if index == len(self.files) - 1:
+                    time.sleep(0.12)
+
+            self.events.put(("status", self.category, "done"))
+            self.events.put(("finished", self.category, extracted))
+        except Exception:
+            self.events.put(("status", self.category, "error"))
+            self.events.put(("finished", self.category, extracted))
+
+
+class ExtractionDialog(QDialog):
+    extraction_finished = pyqtSignal(list)
+
+    def __init__(self, categorized_files, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Ekstrakcja metadanych")
+        self.setModal(True)
+        self.resize(460, 300)
+
+        self.categorized_files = categorized_files
+        self.threads = []
+        self.events = Queue()
+        self.poll_timer = QTimer(self)
+        self.poll_timer.timeout.connect(self.process_events)
+        self.results = []
+        self.finished_count = 0
+
+        layout = QVBoxLayout(self)
+
+        title = QLabel("Trwa ekstrakcja metadanych")
+        title.setObjectName("DialogTitle")
+        layout.addWidget(title)
+
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 0)
+        layout.addWidget(self.progress)
+
+        self.status_grid = QGridLayout()
+        self.status_labels = {}
+
+        for row, category in enumerate(categorized_files):
+            name_label = QLabel(category)
+            status_label = QLabel("waiting")
+            status_label.setObjectName("StatusWaiting")
+            self.status_labels[category] = status_label
+
+            self.status_grid.addWidget(name_label, row, 0)
+            self.status_grid.addWidget(status_label, row, 1)
+
+        layout.addLayout(self.status_grid)
+        layout.addStretch()
+
+        buttons = QHBoxLayout()
+        buttons.addStretch()
+        self.ok_button = QPushButton("OK")
+        self.ok_button.setEnabled(False)
+        self.ok_button.clicked.connect(self.accept)
+        buttons.addWidget(self.ok_button)
+        layout.addLayout(buttons)
+
+    def start_extraction(self):
+        if not self.categorized_files:
+            self.progress.setRange(0, 1)
+            self.progress.setValue(1)
+            self.ok_button.setEnabled(True)
+            return
+
+        for category, files in self.categorized_files.items():
+            worker = ExtractionWorker(category, files, self.events)
+            thread = threading.Thread(target=worker.run, daemon=True)
+            self.threads.append(thread)
+            thread.start()
+
+        self.poll_timer.start(80)
+
+    def process_events(self):
+        while not self.events.empty():
+            event_type, category, payload = self.events.get()
+            if event_type == "status":
+                self.update_status(category, payload)
+            elif event_type == "finished":
+                self.collect_results(category, payload)
+                self.check_finished()
+
+    def update_status(self, category, status):
+        label = self.status_labels[category]
+        label.setText(status)
+        label.setObjectName(f"Status{status.title().replace(' ', '')}")
+        label.style().unpolish(label)
+        label.style().polish(label)
+
+    def collect_results(self, _category, results):
+        self.results.extend(results)
+
+    def check_finished(self):
+        self.finished_count += 1
+        if self.finished_count == len(self.threads):
+            self.poll_timer.stop()
+            self.progress.setRange(0, 1)
+            self.progress.setValue(1)
+            self.ok_button.setEnabled(True)
+            self.extraction_finished.emit(self.results)
+
+
+class MainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Refindika")
+        self.resize(990, 610)
+
+        self.current_files = []
+        self.active_category = "Wszystkie pliki"
+
+        self.tabs = QTabWidget()
+        self.setCentralWidget(self.tabs)
+
+        self.folder_tab = QWidget()
+        self.template_tab = QWidget()
+
+        self.tabs.addTab(self.folder_tab, "Folder")
+        self.tabs.addTab(self.template_tab, "Template")
+
+        self.setup_folder_tab()
+        self.setup_template_tab()
+        self.apply_styles()
+
+    def setup_folder_tab(self):
+        main_layout = QVBoxLayout(self.folder_tab)
+        main_layout.setContentsMargins(0, 8, 0, 0)
+        main_layout.setSpacing(8)
+
+        path_bar = QHBoxLayout()
+        path_bar.setContentsMargins(2, 0, 8, 0)
+        path_bar.setSpacing(8)
+        self.path_input = QLineEdit()
+        self.path_input.setPlaceholderText(
+            "Podaj adres folderu... np. C:/Users/Daniel/Videos"
+        )
+        path_bar.addWidget(self.path_input, 1)
+
+        open_button = QPushButton("Open")
+        open_button.clicked.connect(self.open_folder)
+        path_bar.addWidget(open_button)
+
+        scan_button = QPushButton("Scan")
+        scan_button.setObjectName("PrimaryButton")
+        scan_button.clicked.connect(self.scan_folder)
+        path_bar.addWidget(scan_button)
+
+        main_layout.addLayout(path_bar)
+
+        content = QHBoxLayout()
+        content.setContentsMargins(0, 0, 0, 0)
+        content.setSpacing(6)
+
+        sidebar = QFrame()
+        sidebar.setObjectName("Sidebar")
+        sidebar.setFixedWidth(198)
+        sidebar_layout = QVBoxLayout(sidebar)
+        sidebar_layout.setContentsMargins(0, 0, 6, 0)
+        sidebar_layout.setSpacing(8)
+
+        sidebar_title = QLabel("Kategorie")
+        sidebar_title.setObjectName("SidebarTitle")
+        sidebar_layout.addWidget(sidebar_title)
+
+        self.category_list = QListWidget()
+        self.category_list.itemClicked.connect(self.change_category)
+        sidebar_layout.addWidget(self.category_list, 1)
+        content.addWidget(sidebar)
+
+        table_frame = QFrame()
+        table_frame.setObjectName("TableFrame")
+        table_layout = QVBoxLayout(table_frame)
+        table_layout.setContentsMargins(8, 6, 6, 6)
+        table_layout.setSpacing(6)
+
+        filter_bar = QHBoxLayout()
+        filter_bar.setSpacing(8)
+        self.filter_input = QLineEdit()
+        self.filter_input.setPlaceholderText("Search")
+        self.filter_input.returnPressed.connect(self.refresh_table)
+        filter_bar.addWidget(self.filter_input)
+
+        filter_button = QPushButton("Filtr")
+        filter_button.setObjectName("FilterButton")
+        filter_button.clicked.connect(self.refresh_table)
+        filter_bar.addWidget(filter_button)
+        table_layout.addLayout(filter_bar)
+
+        self.files_table = QTableWidget(0, 5)
+        self.files_table.setHorizontalHeaderLabels(
+            ["Nazwa⌄", "Typ⌄", "Data modyfikacji⌄", "Rozmiar⌄", "Ścieżka⌄"]
+        )
+        self.files_table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.Interactive
+        )
+        self.files_table.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.ResizeMode.Interactive
+        )
+        self.files_table.horizontalHeader().setSectionResizeMode(
+            2, QHeaderView.ResizeMode.Interactive
+        )
+        self.files_table.horizontalHeader().setSectionResizeMode(
+            3, QHeaderView.ResizeMode.Interactive
+        )
+        self.files_table.horizontalHeader().setSectionResizeMode(
+            4, QHeaderView.ResizeMode.Stretch
+        )
+        self.files_table.setColumnWidth(0, 155)
+        self.files_table.setColumnWidth(1, 150)
+        self.files_table.setColumnWidth(2, 155)
+        self.files_table.setColumnWidth(3, 150)
+        self.files_table.setAlternatingRowColors(True)
+        self.files_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.files_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.files_table.verticalHeader().setVisible(False)
+        table_layout.addWidget(self.files_table)
+
+        content.addWidget(table_frame, 1)
+        main_layout.addLayout(content, 1)
+
+        self.reset_categories()
+
+    def setup_template_tab(self):
+        layout = QVBoxLayout(self.template_tab)
+
+        title = QLabel("2. Template")
+        title.setObjectName("PageTitle")
+        layout.addWidget(title)
+
+        subtitle = QLabel("Tutaj bedzie ekran template dla wybranych kategorii plikow.")
+        subtitle.setObjectName("MutedText")
+        layout.addWidget(subtitle)
+        layout.addStretch()
+
+    def reset_categories(self):
+        self.category_list.clear()
+        item = QListWidgetItem("Wszystkie pliki")
+        self.category_list.addItem(item)
+        self.category_list.setCurrentItem(item)
+        self.active_category = "Wszystkie pliki"
+
+    def open_folder(self):
+        folder = QFileDialog.getExistingDirectory(self, "Wybierz folder")
+        if folder:
+            self.path_input.setText(folder)
+
+    def scan_folder(self):
+        folder_text = self.path_input.text().strip()
+        folder_path = Path(folder_text)
+
+        if not folder_text or not folder_path.exists() or not folder_path.is_dir():
+            QMessageBox.warning(
+                self,
+                "Nieprawidlowy folder",
+                "nie prawidlowy path lub nie instiejie taki folder",
+            )
+            return
+
+        all_files = [path for path in folder_path.iterdir() if path.is_file()]
+        if not all_files:
+            QMessageBox.information(self, "Pusty folder", "folder jest pusty")
+            return
+
+        category_dialog = CategoryDialog(self)
+        if category_dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        selected = category_dialog.selected_categories()
+        categorized_files = self.group_files_by_category(all_files, selected)
+
+        extraction_dialog = ExtractionDialog(categorized_files, self)
+        extraction_dialog.extraction_finished.connect(self.load_results)
+        extraction_dialog.show()
+        extraction_dialog.start_extraction()
+        extraction_dialog.exec()
+
+    def group_files_by_category(self, files, selected_categories):
+        grouped = {}
+        for category in selected_categories:
+            extensions = FILE_TYPES[category]
+            matched_files = [
+                path for path in files if path.suffix.lower() in extensions
+            ]
+            if matched_files:
+                grouped[category] = matched_files
+        return grouped
+
+    def load_results(self, files):
+        self.current_files = sorted(files, key=lambda item: item["name"].lower())
+
+        self.category_list.clear()
+        self.category_list.addItem("Wszystkie pliki")
+        for category in FILE_TYPES:
+            if any(file["category"] == category for file in self.current_files):
+                self.category_list.addItem(category)
+
+        self.category_list.setCurrentRow(0)
+        self.active_category = "Wszystkie pliki"
+        self.refresh_table()
+
+    def change_category(self, item):
+        self.active_category = item.text()
+        self.refresh_table()
+
+    def refresh_table(self):
+        query = self.filter_input.text().strip().lower()
+        rows = []
+
+        for file in self.current_files:
+            if (
+                self.active_category != "Wszystkie pliki"
+                and file["category"] != self.active_category
+            ):
+                continue
+
+            searchable = " ".join(
+                [
+                    file["name"],
+                    file["category"],
+                    file["extension"],
+                    file["modified"],
+                    file["size"],
+                    file["path"],
+                ]
+            ).lower()
+            if query and query not in searchable:
+                continue
+
+            rows.append(file)
+
+        self.files_table.setRowCount(len(rows))
+        for row, file in enumerate(rows):
+            self.files_table.setItem(row, 0, QTableWidgetItem(file["name"]))
+            self.files_table.setItem(row, 1, QTableWidgetItem(file["category"]))
+            self.files_table.setItem(row, 2, QTableWidgetItem(file["modified"]))
+            self.files_table.setItem(row, 3, QTableWidgetItem(file["size"]))
+            self.files_table.setItem(row, 4, QTableWidgetItem(file["path"]))
+
+    def apply_styles(self):
+        self.setStyleSheet(
+            """
+            QWidget {
+                font-family: Segoe UI, Arial, sans-serif;
+                font-size: 12px;
+            }
+            QMainWindow, QTabWidget::pane, QWidget {
+                background: #fbfcfd;
+            }
+            QTabWidget::pane {
+                border: none;
+                top: -1px;
+            }
+            QTabWidget::tab-bar {
+                left: 2px;
+            }
+            QTabBar::tab {
+                min-width: 86px;
+                min-height: 29px;
+                margin: 0 4px 2px 0;
+                padding: 0 2px;
+                color: #3f4650;
+                background: #ffffff;
+                border: 1px solid #edf0f3;
+                border-radius: 8px;
+                font-weight: 600;
+            }
+            QTabBar::tab:selected {
+                color: #2d333a;
+                background: #ffffff;
+                border-color: #dfe5eb;
+            }
+            QTabBar::tab:!selected {
+                color: #5d6470;
+            }
+            QLineEdit {
+                min-height: 28px;
+                padding: 0 12px;
+                border: 1px solid #e1e5e9;
+                border-radius: 7px;
+                background: #ffffff;
+            }
+            QPushButton {
+                min-height: 28px;
+                padding: 0 18px;
+                border: 1px solid #e2e6ea;
+                border-radius: 7px;
+                background: #ffffff;
+                color: #2f3742;
+                font-weight: 600;
+            }
+            QPushButton:hover {
+                background: #f5f8fb;
+            }
+            QPushButton#PrimaryButton {
+                color: #2b3744;
+                border-color: #d5e7fb;
+                background: #e8f2ff;
+            }
+            QPushButton#PrimaryButton:hover {
+                background: #dbeeff;
+            }
+            QPushButton#FilterButton {
+                padding: 0 12px;
+            }
+            QListWidget {
+                border: none;
+                background: #ffffff;
+                padding: 2px 8px 8px 0;
+                outline: none;
+            }
+            QListWidget::item {
+                min-height: 36px;
+                padding: 4px 10px;
+                border-radius: 6px;
+                color: #46505d;
+            }
+            QListWidget::item:selected {
+                color: #334155;
+                background: #dcecff;
+                font-weight: 600;
+            }
+            QFrame#Sidebar {
+                border-right: 1px solid #edf0f3;
+                background: #ffffff;
+            }
+            QLabel#SidebarTitle {
+                min-height: 28px;
+                padding-left: 2px;
+                border: 1px solid #edf0f3;
+                border-radius: 8px;
+                background: #ffffff;
+                color: #344054;
+                font-weight: 700;
+            }
+            QFrame#TableFrame {
+                border-left: 1px solid #edf0f3;
+                border-top: 1px solid #edf0f3;
+                border-radius: 0;
+                background: #ffffff;
+            }
+            QTableWidget {
+                border: 1px solid #edf0f3;
+                gridline-color: #edf0f3;
+                background: #ffffff;
+                alternate-background-color: #fbfcfd;
+                selection-background-color: #dcecff;
+                selection-color: #1f2937;
+            }
+            QHeaderView::section {
+                min-height: 28px;
+                padding: 0 8px;
+                border: none;
+                border-right: 1px solid #e4e8ec;
+                border-bottom: 1px solid #e4e8ec;
+                background: #f5f5f5;
+                color: #374151;
+                font-weight: 600;
+            }
+            QTableWidget::item {
+                padding: 4px;
+            }
+            QLabel#PageTitle {
+                font-size: 22px;
+                font-weight: 700;
+            }
+            QLabel#DialogTitle {
+                font-size: 16px;
+                font-weight: 700;
+            }
+            QLabel#MutedText {
+                color: #5e6b78;
+            }
+            QLabel#StatusWaiting {
+                color: #6b7280;
+            }
+            QLabel#StatusInProgress {
+                color: #1976bd;
+                font-weight: 600;
+            }
+            QLabel#StatusDone {
+                color: #198754;
+                font-weight: 600;
+            }
+            QLabel#StatusError {
+                color: #b42318;
+                font-weight: 600;
+            }
+            """
+        )
+
+
+def main():
+    os.environ.setdefault("QT_ENABLE_HIGHDPI_SCALING", "1")
+    app = QApplication(sys.argv)
+    window = MainWindow()
+    window.show()
+    sys.exit(app.exec())
+
+
+if __name__ == "__main__":
+    main()
