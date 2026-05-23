@@ -57,6 +57,13 @@ METADATA_BY_TYPE = {
 }
 
 
+def normalize_file_type(file_type):
+    for known_type in METADATA_BY_TYPE:
+        if known_type.lower() == str(file_type).lower():
+            return known_type
+    return str(file_type)
+
+
 class TemplatesTab(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -283,18 +290,30 @@ class TemplatesTab(QWidget):
 
     # ---- Funkcja zbiera dane wpisane przez uzytkownika ----
     def get_form_data(self):
-        return {
-            "name": self.template_name_input.text().strip(),
-            "file_type": self.file_type_select.currentText(),
-            "pattern": self.pattern_input.text().strip(),
+        selected_type = self.file_type_select.currentText()
+        template_data = {
+            "Name": self.template_name_input.text().strip(),
+            "Type": selected_type.lower(),
+            "Template": self.pattern_input.text().strip(),
         }
+
+        # --- Loops zapisuje stan kazdego checkboxa metadanych ---
+        for metadata_name in METADATA_BY_TYPE[selected_type]:
+            checkbox_item = self.metadata_checkboxes.get(metadata_name)
+            template_data[metadata_name] = (
+                checkbox_item is not None
+                and checkbox_item.checkState() == Qt.CheckState.Checked
+            )
+
+        return template_data
 
     # ---- Funkcja sprawdza czy template moze byc zapisany albo uzyty ----
     def validate_template(self, template_data):
         errors = []
-        template_name = template_data.get("name", "").strip()
-        file_type = template_data.get("file_type", "")
-        pattern = template_data.get("pattern", "").strip()
+        template_name = template_data.get("Name", template_data.get("name", "")).strip()
+        file_type = template_data.get("Type", template_data.get("file_type", ""))
+        normalized_type = normalize_file_type(file_type)
+        pattern = template_data.get("Template", template_data.get("pattern", "")).strip()
         found_metadata = re.findall(r"{([^{}]+)}", pattern)
 
         # -- if sprawdza nazwe template --
@@ -306,17 +325,17 @@ class TemplatesTab(QWidget):
             errors.append("Enter file name pattern.")
 
         # -- if sprawdza czy typ pliku istnieje w programie --
-        if file_type not in METADATA_BY_TYPE:
+        if normalized_type not in METADATA_BY_TYPE:
             errors.append("Invalid file type in template.")
             return errors
 
-        allowed_metadata = set(METADATA_BY_TYPE[file_type])
+        allowed_metadata = set(METADATA_BY_TYPE[normalized_type])
 
         # --- Loops sprawdza wszystkie placeholdery w patternie ---
         for metadata_name in found_metadata:
             if metadata_name not in allowed_metadata:
                 errors.append(
-                    f"Metadata {{{metadata_name}}} does not match {file_type}."
+                    f"Metadata {{{metadata_name}}} does not match {normalized_type}."
                 )
 
         # -- if sprawdza czy klamry sa poprawnie zamkniete --
@@ -331,8 +350,10 @@ class TemplatesTab(QWidget):
     def add_or_update_template(self, template_data):
         # --- Loops szuka template o tej samej nazwie i typie pliku ---
         for index, saved_template in enumerate(self.templates):
-            same_name = saved_template.get("name") == template_data["name"]
-            same_type = saved_template.get("file_type") == template_data["file_type"]
+            saved_name = saved_template.get("Name", saved_template.get("name"))
+            saved_type = saved_template.get("Type", saved_template.get("file_type"))
+            same_name = saved_name == template_data["Name"]
+            same_type = saved_type == template_data["Type"]
 
             # -- if aktualizuje istniejacy template --
             if same_name and same_type:
@@ -350,12 +371,12 @@ class TemplatesTab(QWidget):
 
         # --- Loops wypelnia tabele zapisanych templates ---
         for row, template_data in enumerate(self.templates):
-            name = template_data.get("name", "")
-            file_type = template_data.get("file_type", "")
+            name = template_data.get("Name", template_data.get("name", ""))
+            file_type = template_data.get("Type", template_data.get("file_type", ""))
             name_item = QTableWidgetItem(name)
             self.saved_templates_table.setItem(row, 0, name_item)
 
-            type_item = QTableWidgetItem(file_type)
+            type_item = QTableWidgetItem(normalize_file_type(file_type))
             self.saved_templates_table.setItem(row, 1, type_item)
 
             use_button = QPushButton("Use")
@@ -380,7 +401,21 @@ class TemplatesTab(QWidget):
             QMessageBox.warning(self, "Invalid template", "\n".join(errors))
             return
 
-        self.template_name_input.setText(template_data["name"])
-        self.file_type_select.setCurrentText(template_data["file_type"])
-        self.pattern_input.setText(template_data["pattern"])
+        template_name = template_data.get("Name", template_data.get("name", ""))
+        file_type = template_data.get("Type", template_data.get("file_type", ""))
+        pattern = template_data.get("Template", template_data.get("pattern", ""))
+        normalized_type = normalize_file_type(file_type)
+
+        self.template_name_input.setText(template_name)
+        self.file_type_select.setCurrentText(normalized_type)
+        self.pattern_input.setText(pattern)
+
+        # --- Loops odtwarza zapisany stan checkboxow metadanych ---
+        for metadata_name in METADATA_BY_TYPE[normalized_type]:
+            checkbox_item = self.metadata_checkboxes.get(metadata_name)
+            if checkbox_item is not None:
+                is_checked = template_data.get(metadata_name, True)
+                state = Qt.CheckState.Checked if is_checked else Qt.CheckState.Unchecked
+                checkbox_item.setCheckState(state)
+
         self.selected_template = template_data

@@ -13,5 +13,16 @@
         "name": "Test2",
         "file_type": "Video",
         "pattern": "{resolution}_{fps}_{duration}_{original_name}"
+    },
+    {
+        "Name": "Test3",
+        "Type": "pdf",
+        "Template": "{original_name}_{title}_{word_count}Test",
+        "original_name": true,
+        "title": false,
+        "author": false,
+        "pages": false,
+        "word_count": true,
+        "extension": true
     }
 ]
