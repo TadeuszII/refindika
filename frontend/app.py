@@ -250,24 +250,30 @@ class MainWindow(QMainWindow):
         self.setup_folder_tab()
         self.apply_styles()
 
+    # Funkcja dla budowania glownej strony Folder.
     def setup_folder_tab(self):
         main_layout = QVBoxLayout(self.folder_tab)
         main_layout.setContentsMargins(0, 8, 0, 0)
         main_layout.setSpacing(8)
 
+        # Pasek dla wpisania adresu folderu oraz przyciskow Open i Scan.
         path_bar = QHBoxLayout()
         path_bar.setContentsMargins(2, 0, 8, 0)
         path_bar.setSpacing(8)
+
+        # Textbox dla adresu foldera.
         self.path_input = QLineEdit()
         self.path_input.setPlaceholderText(
-            "Enter folder path... for example C:/Users/Daniel/Videos"
+            "Enter folder path... e.g. C:/Users/Daniel/Videos"
         )
         path_bar.addWidget(self.path_input, 1)
 
-        open_button = QPushButton("Choose folder")
+        # Przycisk dla wyboru folderu przez file explorer.
+        open_button = QPushButton("Open")
         open_button.clicked.connect(self.open_folder)
         path_bar.addWidget(open_button)
 
+        # Przycisk dla rozpoczecia skanowania folderu.
         scan_button = QPushButton("Scan")
         scan_button.setObjectName("PrimaryButton")
         scan_button.clicked.connect(self.scan_folder)
@@ -279,6 +285,7 @@ class MainWindow(QMainWindow):
         content.setContentsMargins(0, 0, 0, 0)
         content.setSpacing(6)
 
+        # Lewy panel dla kategorii plikow.
         sidebar = QFrame()
         sidebar.setObjectName("Sidebar")
         sidebar.setFixedWidth(198)
@@ -290,17 +297,20 @@ class MainWindow(QMainWindow):
         sidebar_title.setObjectName("SidebarTitle")
         sidebar_layout.addWidget(sidebar_title)
 
+        # Lista dla wyboru kategorii wyswietlanych plikow.
         self.category_list = QListWidget()
         self.category_list.itemClicked.connect(self.change_category)
         sidebar_layout.addWidget(self.category_list, 1)
         content.addWidget(sidebar)
 
+        # Glowny kontener dla wyszukiwarki i tabeli plikow.
         table_frame = QFrame()
         table_frame.setObjectName("TableFrame")
         table_layout = QVBoxLayout(table_frame)
         table_layout.setContentsMargins(8, 6, 6, 6)
         table_layout.setSpacing(6)
 
+        # Pasek dla wyszukiwania plikow w tabeli.
         filter_bar = QHBoxLayout()
         filter_bar.setSpacing(8)
         self.filter_input = QLineEdit()
@@ -308,12 +318,14 @@ class MainWindow(QMainWindow):
         self.filter_input.returnPressed.connect(self.refresh_table)
         filter_bar.addWidget(self.filter_input)
 
+        # Przycisk dla zastosowania filtra wyszukiwania.
         filter_button = QPushButton("Filter")
         filter_button.setObjectName("FilterButton")
         filter_button.clicked.connect(self.refresh_table)
         filter_bar.addWidget(filter_button)
         table_layout.addLayout(filter_bar)
 
+        # Tabela dla wynikow skanowania folderu.
         self.files_table = QTableWidget(0, 5)
         self.files_table.setHorizontalHeaderLabels(
             ["Name", "Type", "Modified", "Size", "Path"]
@@ -348,6 +360,7 @@ class MainWindow(QMainWindow):
 
         self.reset_categories()
 
+    # Funkcja dla resetowania listy kategorii na glownej stronie.
     def reset_categories(self):
         self.category_list.clear()
         item = QListWidgetItem("All files")
@@ -355,11 +368,13 @@ class MainWindow(QMainWindow):
         self.category_list.setCurrentItem(item)
         self.active_category = "All files"
 
+    # Funkcja dla otwierania okna wyboru folderu.
     def open_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, "Choose folder")
+        folder = QFileDialog.getExistingDirectory(self, "Open folder")
         if folder:
             self.path_input.setText(folder)
 
+    # Funkcja dla sprawdzania folderu i uruchomienia skanowania.
     def scan_folder(self):
         folder_text = self.path_input.text().strip()
         folder_path = Path(folder_text)
@@ -390,6 +405,7 @@ class MainWindow(QMainWindow):
         extraction_dialog.start_extraction()
         extraction_dialog.exec()
 
+    # Funkcja dla przypisania plikow do wybranych kategorii.
     def group_files_by_category(self, files, selected_categories):
         grouped = {}
         for category in selected_categories:
@@ -401,6 +417,7 @@ class MainWindow(QMainWindow):
                 grouped[category] = matched_files
         return grouped
 
+    # Funkcja dla zaladowania zeskanowanych plikow do glownej tabeli.
     def load_results(self, files):
         self.current_files = sorted(files, key=lambda item: item["name"].lower())
 
@@ -414,10 +431,12 @@ class MainWindow(QMainWindow):
         self.active_category = "All files"
         self.refresh_table()
 
+    # Funkcja dla zmiany aktywnej kategorii w lewym panelu.
     def change_category(self, item):
         self.active_category = item.text()
         self.refresh_table()
 
+    # Funkcja dla odswiezania tabeli wedlug kategorii i tekstu Search.
     def refresh_table(self):
         query = self.filter_input.text().strip().lower()
         rows = []

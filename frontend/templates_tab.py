@@ -193,10 +193,16 @@ class TemplatesTab(QWidget):
 
         # --- Loops wypelnia tabele metadanych checkboxami i przyciskami Add ---
         for row, metadata_name in enumerate(metadata_list):
-            checkbox = QCheckBox()
-            checkbox.setChecked(True)
-            self.metadata_checkboxes[metadata_name] = checkbox
-            self.metadata_table.setCellWidget(row, 0, checkbox)
+            checkbox_item = QTableWidgetItem()
+            checkbox_item.setFlags(
+                Qt.ItemFlag.ItemIsEnabled
+                | Qt.ItemFlag.ItemIsUserCheckable
+                | Qt.ItemFlag.ItemIsSelectable
+            )
+            checkbox_item.setCheckState(Qt.CheckState.Checked)
+            checkbox_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.metadata_checkboxes[metadata_name] = checkbox_item
+            self.metadata_table.setItem(row, 0, checkbox_item)
 
             metadata_item = QTableWidgetItem(metadata_name)
             self.metadata_table.setItem(row, 1, metadata_item)
