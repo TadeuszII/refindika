@@ -30,6 +30,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from templates_tab import TemplatesTab
+
 
 FILE_TYPES = {
     "Video": {".mp4", ".avi", ".mov", ".mkv", ".webm"},
@@ -240,13 +242,12 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.tabs)
 
         self.folder_tab = QWidget()
-        self.template_tab = QWidget()
+        self.template_tab = TemplatesTab()
 
         self.tabs.addTab(self.folder_tab, "Folder")
-        self.tabs.addTab(self.template_tab, "Template")
+        self.tabs.addTab(self.template_tab, "Templates")
 
         self.setup_folder_tab()
-        self.setup_template_tab()
         self.apply_styles()
 
     def setup_folder_tab(self):
@@ -346,18 +347,6 @@ class MainWindow(QMainWindow):
         main_layout.addLayout(content, 1)
 
         self.reset_categories()
-
-    def setup_template_tab(self):
-        layout = QVBoxLayout(self.template_tab)
-
-        title = QLabel("2. Template")
-        title.setObjectName("PageTitle")
-        layout.addWidget(title)
-
-        subtitle = QLabel("Tutaj bedzie ekran template dla wybranych kategorii plikow.")
-        subtitle.setObjectName("MutedText")
-        layout.addWidget(subtitle)
-        layout.addStretch()
 
     def reset_categories(self):
         self.category_list.clear()

@@ -1,0 +1,7 @@
+[
+    {
+        "name": "Default",
+        "file_type": "Video",
+        "pattern": "{original_name}{duration}{resolution}"
+    }
+]
