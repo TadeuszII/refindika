@@ -3,5 +3,15 @@
         "name": "Default",
         "file_type": "Video",
         "pattern": "{original_name}{duration}{resolution}"
+    },
+    {
+        "name": "Test1",
+        "file_type": "Video",
+        "pattern": "{original_name}_{codec}_{extension}"
+    },
+    {
+        "name": "Test2",
+        "file_type": "Video",
+        "pattern": "{resolution}_{fps}_{duration}_{original_name}"
     }
 ]

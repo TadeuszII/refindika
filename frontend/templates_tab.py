@@ -2,7 +2,9 @@ import json
 import re
 from pathlib import Path
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
+    QAbstractScrollArea,
     QCheckBox,
     QComboBox,
     QHBoxLayout,
@@ -60,7 +62,7 @@ class TemplatesTab(QWidget):
         super().__init__(parent)
 
         self.templates = []
-        self.checkbox_by_metadata = {}
+        self.metadata_checkboxes = {}
         self.templates_file = self.get_templates_file()
         self.selected_template = None
 
@@ -73,85 +75,104 @@ class TemplatesTab(QWidget):
     def setup_ui(self):
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(12, 10, 12, 10)
-        main_layout.setSpacing(10)
+        main_layout.setSpacing(0)
 
-        title = QLabel("2. Templates")
-        title.setObjectName("PageTitle")
-        main_layout.addWidget(title)
+        form_widget = QWidget()
+        form_widget.setMaximumWidth(820)
+        form_layout = QVBoxLayout(form_widget)
+        form_layout.setContentsMargins(0, 0, 0, 0)
+        form_layout.setSpacing(8)
 
         top_row = QHBoxLayout()
         top_row.setSpacing(10)
 
         self.template_name_input = QLineEdit()
-        self.template_name_input.setPlaceholderText("Nazwa")
-        top_row.addWidget(self.template_name_input, 1)
+        self.template_name_input.setPlaceholderText("Template name")
+        self.template_name_input.setFixedWidth(300)
+        top_row.addWidget(self.template_name_input)
 
         self.file_type_select = QComboBox()
         self.file_type_select.addItems(["Video", "Audio", "PDF", "Word"])
         self.file_type_select.currentTextChanged.connect(self.refresh_metadata_table)
-        top_row.addWidget(self.file_type_select, 1)
+        self.file_type_select.setFixedWidth(190)
+        top_row.addWidget(self.file_type_select)
 
-        top_row.addStretch(2)
-        main_layout.addLayout(top_row)
+        top_row.addStretch()
+        form_layout.addLayout(top_row)
 
-        hint = QLabel(
-            "Construct the ideal filename using the available variables. "
-            "Click a variable to append it."
-        )
-        hint.setObjectName("MutedText")
-        main_layout.addWidget(hint)
+        metadata_label = QLabel("Metadata columns")
+        metadata_label.setObjectName("SectionTitle")
+        form_layout.addWidget(metadata_label)
 
-        self.metadata_table = QTableWidget(0, 2)
-        self.metadata_table.setHorizontalHeaderLabels(["Metadana", "Dodaj"])
-        self.metadata_table.horizontalHeader().setSectionResizeMode(
-            0, QHeaderView.ResizeMode.Stretch
-        )
-        self.metadata_table.horizontalHeader().setSectionResizeMode(
-            1, QHeaderView.ResizeMode.ResizeToContents
-        )
-        self.metadata_table.setMaximumHeight(170)
+        self.metadata_table = QTableWidget(0, 3)
+        self.metadata_table.setHorizontalHeaderLabels(["Show", "Metadata", "Action"])
+        self.setup_compact_table(self.metadata_table)
+        self.metadata_table.setFixedWidth(320)
         self.metadata_table.setAlternatingRowColors(True)
-        self.metadata_table.verticalHeader().setVisible(False)
         self.metadata_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        main_layout.addWidget(self.metadata_table)
+        form_layout.addWidget(self.metadata_table)
 
         template_row = QHBoxLayout()
         template_row.setSpacing(10)
 
-        template_label = QLabel("Template:")
+        template_label = QLabel("File name pattern:")
         template_row.addWidget(template_label)
 
         self.pattern_input = QLineEdit()
-        self.pattern_input.setPlaceholderText("Plik_{original_name}_{fps}")
-        self.pattern_input.textChanged.connect(self.sync_checkboxes_with_pattern)
-        template_row.addWidget(self.pattern_input, 1)
+        self.pattern_input.setPlaceholderText("File_{original_name}_{fps}")
+        self.pattern_input.setFixedWidth(360)
+        template_row.addWidget(self.pattern_input)
 
-        self.use_button = QPushButton("Use template")
+        self.use_button = QPushButton("Use")
         self.use_button.setObjectName("PrimaryButton")
+        self.use_button.setFixedWidth(70)
         self.use_button.clicked.connect(self.use_current_template)
         template_row.addWidget(self.use_button)
 
-        self.save_button = QPushButton("Save Template")
+        self.save_button = QPushButton("Save")
         self.save_button.setObjectName("PrimaryButton")
+        self.save_button.setFixedWidth(70)
         self.save_button.clicked.connect(self.save_current_template)
         template_row.addWidget(self.save_button)
 
-        main_layout.addLayout(template_row)
+        template_row.addStretch()
+        form_layout.addLayout(template_row)
 
-        self.saved_templates_table = QTableWidget(0, 2)
-        self.saved_templates_table.setHorizontalHeaderLabels(["Nazwa", ""])
-        self.saved_templates_table.horizontalHeader().setSectionResizeMode(
-            0, QHeaderView.ResizeMode.Stretch
-        )
-        self.saved_templates_table.horizontalHeader().setSectionResizeMode(
-            1, QHeaderView.ResizeMode.ResizeToContents
-        )
+        saved_label = QLabel("Saved templates")
+        saved_label.setObjectName("SectionTitle")
+        form_layout.addWidget(saved_label)
+
+        self.saved_templates_table = QTableWidget(0, 3)
+        self.saved_templates_table.setHorizontalHeaderLabels(["Name", "Category", "Action"])
+        self.setup_compact_table(self.saved_templates_table)
+        self.saved_templates_table.setFixedWidth(340)
         self.saved_templates_table.setAlternatingRowColors(True)
-        self.saved_templates_table.verticalHeader().setVisible(False)
         self.saved_templates_table.setEditTriggers(
             QTableWidget.EditTrigger.NoEditTriggers
         )
-        main_layout.addWidget(self.saved_templates_table, 1)
+        form_layout.addWidget(self.saved_templates_table)
+
+        main_layout.addWidget(form_widget)
+        main_layout.addStretch()
+
+    # ---- Funkcja ustawia tabele jako male i bez pustych obszarow ----
+    def setup_compact_table(self, table):
+        table.verticalHeader().setVisible(False)
+        table.horizontalHeader().setStretchLastSection(False)
+        table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        table.setSizeAdjustPolicy(QAbstractScrollArea.SizeAdjustPolicy.AdjustToContents)
+        table.setShowGrid(True)
+
+        header = table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
+
+    # ---- Funkcja ustawia wysokosc tabeli wedlug liczby wierszy ----
+    def set_table_height(self, table, row_count):
+        header_height = table.horizontalHeader().height()
+        row_height = table.verticalHeader().defaultSectionSize()
+        frame_size = 2
+        table.setFixedHeight(header_height + row_height * row_count + frame_size)
 
     # ---- Funkcja zwraca sciezke do pliku z template ----
     def get_templates_file(self):
@@ -164,49 +185,41 @@ class TemplatesTab(QWidget):
         selected_type = self.file_type_select.currentText()
         metadata_list = METADATA_BY_TYPE[selected_type]
 
-        self.checkbox_by_metadata = {}
+        self.metadata_checkboxes = {}
         self.metadata_table.setRowCount(len(metadata_list))
+        self.metadata_table.setColumnWidth(0, 58)
+        self.metadata_table.setColumnWidth(1, 150)
+        self.metadata_table.setColumnWidth(2, 82)
 
-        # --- Loops wypelnia tabele metadanych checkboxami ---
+        # --- Loops wypelnia tabele metadanych checkboxami i przyciskami Add ---
         for row, metadata_name in enumerate(metadata_list):
-            metadata_item = QTableWidgetItem(f"{{{metadata_name}}}")
-            self.metadata_table.setItem(row, 0, metadata_item)
-
             checkbox = QCheckBox()
-            checkbox.stateChanged.connect(
-                lambda _state, name=metadata_name: self.update_pattern_from_checkbox(
+            checkbox.setChecked(True)
+            self.metadata_checkboxes[metadata_name] = checkbox
+            self.metadata_table.setCellWidget(row, 0, checkbox)
+
+            metadata_item = QTableWidgetItem(metadata_name)
+            self.metadata_table.setItem(row, 1, metadata_item)
+
+            add_button = QPushButton("Add")
+            add_button.setFixedWidth(64)
+            add_button.clicked.connect(
+                lambda _checked=False, name=metadata_name: self.add_metadata_to_pattern(
                     name
                 )
             )
-            self.checkbox_by_metadata[metadata_name] = checkbox
-            self.metadata_table.setCellWidget(row, 1, checkbox)
+            self.metadata_table.setCellWidget(row, 2, add_button)
 
-        self.sync_checkboxes_with_pattern()
+        self.set_table_height(self.metadata_table, len(metadata_list))
 
-    # ---- Funkcja dodaje albo usuwa placeholder po kliknieciu checkboxa ----
-    def update_pattern_from_checkbox(self, metadata_name):
-        checkbox = self.checkbox_by_metadata[metadata_name]
+    # ---- Funkcja dodaje placeholder do patternu po kliknieciu Add ----
+    def add_metadata_to_pattern(self, metadata_name):
         placeholder = "{" + metadata_name + "}"
         current_pattern = self.pattern_input.text()
 
         # -- if dodaje placeholder tylko jeden raz --
-        if checkbox.isChecked() and placeholder not in current_pattern:
+        if placeholder not in current_pattern:
             self.pattern_input.setText(current_pattern + placeholder)
-            return
-
-        # -- if usuwa placeholder po odznaczeniu checkboxa --
-        if not checkbox.isChecked() and placeholder in current_pattern:
-            self.pattern_input.setText(current_pattern.replace(placeholder, ""))
-
-    # ---- Funkcja ustawia checkboxy zgodnie z aktualnym tekstem template ----
-    def sync_checkboxes_with_pattern(self, _text=None):
-        current_pattern = self.pattern_input.text()
-
-        # --- Loops sprawdza ktore metadane sa juz w patternie ---
-        for metadata_name, checkbox in self.checkbox_by_metadata.items():
-            checkbox.blockSignals(True)
-            checkbox.setChecked("{" + metadata_name + "}" in current_pattern)
-            checkbox.blockSignals(False)
 
     # ---- Funkcja wczytuje zapisane templates z pliku json ----
     def load_templates(self):
@@ -241,13 +254,13 @@ class TemplatesTab(QWidget):
 
         # -- if zatrzymuje zapis jezeli template jest niepoprawny --
         if errors:
-            QMessageBox.warning(self, "Nieprawidlowy template", "\n".join(errors))
+            QMessageBox.warning(self, "Invalid template", "\n".join(errors))
             return
 
         self.add_or_update_template(template_data)
         self.save_templates()
         self.refresh_templates_table()
-        QMessageBox.information(self, "Zapisano", "Template zostal zapisany.")
+        QMessageBox.information(self, "Saved", "Template has been saved.")
 
     # ---- Funkcja ustawia aktualny template jako uzywany w programie ----
     def use_current_template(self):
@@ -256,11 +269,11 @@ class TemplatesTab(QWidget):
 
         # -- if zatrzymuje uzycie jezeli template jest niepoprawny --
         if errors:
-            QMessageBox.warning(self, "Nieprawidlowy template", "\n".join(errors))
+            QMessageBox.warning(self, "Invalid template", "\n".join(errors))
             return
 
         self.selected_template = template_data
-        QMessageBox.information(self, "Template", "Template zostal wybrany.")
+        QMessageBox.information(self, "Template", "Template has been selected.")
 
     # ---- Funkcja zbiera dane wpisane przez uzytkownika ----
     def get_form_data(self):
@@ -280,15 +293,15 @@ class TemplatesTab(QWidget):
 
         # -- if sprawdza nazwe template --
         if not template_name:
-            errors.append("Podaj nazwe template.")
+            errors.append("Enter template name.")
 
         # -- if sprawdza tresc template --
         if not pattern:
-            errors.append("Podaj wzor nowej nazwy pliku.")
+            errors.append("Enter file name pattern.")
 
         # -- if sprawdza czy typ pliku istnieje w programie --
         if file_type not in METADATA_BY_TYPE:
-            errors.append("Nieprawidlowy typ pliku w template.")
+            errors.append("Invalid file type in template.")
             return errors
 
         allowed_metadata = set(METADATA_BY_TYPE[file_type])
@@ -297,14 +310,14 @@ class TemplatesTab(QWidget):
         for metadata_name in found_metadata:
             if metadata_name not in allowed_metadata:
                 errors.append(
-                    f"Metadana {{{metadata_name}}} nie pasuje do typu {file_type}."
+                    f"Metadata {{{metadata_name}}} does not match {file_type}."
                 )
 
         # -- if sprawdza czy klamry sa poprawnie zamkniete --
         if "{" in re.sub(r"{[^{}]+}", "", pattern) or "}" in re.sub(
             r"{[^{}]+}", "", pattern
         ):
-            errors.append("Sprawdz nawiasy klamrowe w template.")
+            errors.append("Check curly brackets in template.")
 
         return errors
 
@@ -325,22 +338,32 @@ class TemplatesTab(QWidget):
     # ---- Funkcja odswieza tabele zapisanych templates ----
     def refresh_templates_table(self):
         self.saved_templates_table.setRowCount(len(self.templates))
+        self.saved_templates_table.setColumnWidth(0, 150)
+        self.saved_templates_table.setColumnWidth(1, 90)
+        self.saved_templates_table.setColumnWidth(2, 82)
 
         # --- Loops wypelnia tabele zapisanych templates ---
         for row, template_data in enumerate(self.templates):
             name = template_data.get("name", "")
             file_type = template_data.get("file_type", "")
-            name_item = QTableWidgetItem(f"{name} ({file_type})")
+            name_item = QTableWidgetItem(name)
             self.saved_templates_table.setItem(row, 0, name_item)
 
-            use_button = QPushButton("Use template")
+            type_item = QTableWidgetItem(file_type)
+            self.saved_templates_table.setItem(row, 1, type_item)
+
+            use_button = QPushButton("Use")
             use_button.setObjectName("PrimaryButton")
+            use_button.setFixedWidth(64)
             use_button.clicked.connect(
                 lambda _checked=False, data=template_data: self.load_saved_template(
                     data
                 )
             )
-            self.saved_templates_table.setCellWidget(row, 1, use_button)
+            self.saved_templates_table.setCellWidget(row, 2, use_button)
+
+        visible_rows = max(len(self.templates), 1)
+        self.set_table_height(self.saved_templates_table, visible_rows)
 
     # ---- Funkcja laduje zapisany template do pol na gorze ----
     def load_saved_template(self, template_data):
@@ -348,11 +371,10 @@ class TemplatesTab(QWidget):
 
         # -- if blokuje ladowanie uszkodzonego template --
         if errors:
-            QMessageBox.warning(self, "Nieprawidlowy template", "\n".join(errors))
+            QMessageBox.warning(self, "Invalid template", "\n".join(errors))
             return
 
         self.template_name_input.setText(template_data["name"])
         self.file_type_select.setCurrentText(template_data["file_type"])
         self.pattern_input.setText(template_data["pattern"])
-        self.sync_checkboxes_with_pattern()
         self.selected_template = template_data

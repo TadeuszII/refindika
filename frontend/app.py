@@ -58,17 +58,17 @@ def format_modified_time(path):
 class CategoryDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Wybierz kategorie")
+        self.setWindowTitle("Select categories")
         self.setModal(True)
         self.resize(360, 230)
 
         layout = QVBoxLayout(self)
 
-        title = QLabel("Z jakich typow plikow wyciagac metadane?")
+        title = QLabel("Choose file types for metadata extraction")
         title.setObjectName("DialogTitle")
         layout.addWidget(title)
 
-        hint = QLabel("Domyslnie wszystkie kategorie sa zaznaczone.")
+        hint = QLabel("All categories are selected by default.")
         hint.setObjectName("MutedText")
         layout.addWidget(hint)
 
@@ -118,7 +118,7 @@ class ExtractionWorker:
                     {
                         "name": path.name,
                         "category": self.category,
-                        "extension": path.suffix.lower() or "brak",
+                        "extension": path.suffix.lower() or "none",
                         "modified": format_modified_time(path),
                         "size": format_file_size(path.stat().st_size),
                         "path": str(path),
@@ -140,7 +140,7 @@ class ExtractionDialog(QDialog):
 
     def __init__(self, categorized_files, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Ekstrakcja metadanych")
+        self.setWindowTitle("Metadata extraction")
         self.setModal(True)
         self.resize(460, 300)
 
@@ -154,7 +154,7 @@ class ExtractionDialog(QDialog):
 
         layout = QVBoxLayout(self)
 
-        title = QLabel("Trwa ekstrakcja metadanych")
+        title = QLabel("Extracting metadata")
         title.setObjectName("DialogTitle")
         layout.addWidget(title)
 
@@ -236,7 +236,7 @@ class MainWindow(QMainWindow):
         self.resize(990, 610)
 
         self.current_files = []
-        self.active_category = "Wszystkie pliki"
+        self.active_category = "All files"
 
         self.tabs = QTabWidget()
         self.setCentralWidget(self.tabs)
@@ -260,11 +260,11 @@ class MainWindow(QMainWindow):
         path_bar.setSpacing(8)
         self.path_input = QLineEdit()
         self.path_input.setPlaceholderText(
-            "Podaj adres folderu... np. C:/Users/Daniel/Videos"
+            "Enter folder path... for example C:/Users/Daniel/Videos"
         )
         path_bar.addWidget(self.path_input, 1)
 
-        open_button = QPushButton("Open")
+        open_button = QPushButton("Choose folder")
         open_button.clicked.connect(self.open_folder)
         path_bar.addWidget(open_button)
 
@@ -286,7 +286,7 @@ class MainWindow(QMainWindow):
         sidebar_layout.setContentsMargins(0, 0, 6, 0)
         sidebar_layout.setSpacing(8)
 
-        sidebar_title = QLabel("Kategorie")
+        sidebar_title = QLabel("Categories")
         sidebar_title.setObjectName("SidebarTitle")
         sidebar_layout.addWidget(sidebar_title)
 
@@ -308,7 +308,7 @@ class MainWindow(QMainWindow):
         self.filter_input.returnPressed.connect(self.refresh_table)
         filter_bar.addWidget(self.filter_input)
 
-        filter_button = QPushButton("Filtr")
+        filter_button = QPushButton("Filter")
         filter_button.setObjectName("FilterButton")
         filter_button.clicked.connect(self.refresh_table)
         filter_bar.addWidget(filter_button)
@@ -316,7 +316,7 @@ class MainWindow(QMainWindow):
 
         self.files_table = QTableWidget(0, 5)
         self.files_table.setHorizontalHeaderLabels(
-            ["Nazwa⌄", "Typ⌄", "Data modyfikacji⌄", "Rozmiar⌄", "Ścieżka⌄"]
+            ["Name", "Type", "Modified", "Size", "Path"]
         )
         self.files_table.horizontalHeader().setSectionResizeMode(
             0, QHeaderView.ResizeMode.Interactive
@@ -350,13 +350,13 @@ class MainWindow(QMainWindow):
 
     def reset_categories(self):
         self.category_list.clear()
-        item = QListWidgetItem("Wszystkie pliki")
+        item = QListWidgetItem("All files")
         self.category_list.addItem(item)
         self.category_list.setCurrentItem(item)
-        self.active_category = "Wszystkie pliki"
+        self.active_category = "All files"
 
     def open_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, "Wybierz folder")
+        folder = QFileDialog.getExistingDirectory(self, "Choose folder")
         if folder:
             self.path_input.setText(folder)
 
@@ -367,14 +367,14 @@ class MainWindow(QMainWindow):
         if not folder_text or not folder_path.exists() or not folder_path.is_dir():
             QMessageBox.warning(
                 self,
-                "Nieprawidlowy folder",
-                "nie prawidlowy path lub nie instiejie taki folder",
+                "Invalid folder",
+                "The folder path is invalid or the folder does not exist.",
             )
             return
 
         all_files = [path for path in folder_path.iterdir() if path.is_file()]
         if not all_files:
-            QMessageBox.information(self, "Pusty folder", "folder jest pusty")
+            QMessageBox.information(self, "Empty folder", "The folder is empty.")
             return
 
         category_dialog = CategoryDialog(self)
@@ -405,13 +405,13 @@ class MainWindow(QMainWindow):
         self.current_files = sorted(files, key=lambda item: item["name"].lower())
 
         self.category_list.clear()
-        self.category_list.addItem("Wszystkie pliki")
+        self.category_list.addItem("All files")
         for category in FILE_TYPES:
             if any(file["category"] == category for file in self.current_files):
                 self.category_list.addItem(category)
 
         self.category_list.setCurrentRow(0)
-        self.active_category = "Wszystkie pliki"
+        self.active_category = "All files"
         self.refresh_table()
 
     def change_category(self, item):
@@ -424,7 +424,7 @@ class MainWindow(QMainWindow):
 
         for file in self.current_files:
             if (
-                self.active_category != "Wszystkie pliki"
+                self.active_category != "All files"
                 and file["category"] != self.active_category
             ):
                 continue
@@ -577,6 +577,10 @@ class MainWindow(QMainWindow):
             }
             QLabel#PageTitle {
                 font-size: 22px;
+                font-weight: 700;
+            }
+            QLabel#SectionTitle {
+                color: #344054;
                 font-weight: 700;
             }
             QLabel#DialogTitle {
