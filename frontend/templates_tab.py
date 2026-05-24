@@ -22,11 +22,25 @@ from PyQt6.QtWidgets import (
 METADATA_BY_TYPE = {
     "Video": [
         "original_name",
+        "custom_name",
+        "file_type",
+        "modified",
+        "path",
+        "content_type",
+        "resource_name",
         "duration",
+        "width",
+        "height",
         "resolution",
-        "fps",
-        "codec",
-        "bitrate",
+        "video_compressor",
+        "audio_sample_rate",
+        "audio_channel_type",
+        "audio_compressor",
+        "created",
+        "modified_tika",
+        "latitude",
+        "longitude",
+        "parser_warning",
         "extension",
     ],
     "Audio": [
@@ -146,7 +160,7 @@ class TemplatesTab(QWidget):
         template_row.addWidget(template_label)
 
         self.pattern_input = QLineEdit()
-        self.pattern_input.setPlaceholderText("File_{original_name}_{fps}")
+        self.pattern_input.setPlaceholderText("File_{original_name}_{video_compressor}")
         self.pattern_input.setFixedWidth(360)
         template_row.addWidget(self.pattern_input)
 
@@ -331,7 +345,10 @@ class TemplatesTab(QWidget):
         # --- Loops nadpisuje defaulty zapisanymi template uzytkownika ---
         for template_data in self.templates:
             file_type = template_data["Type"]
-            self.active_templates_by_type[file_type] = template_data
+
+            # -- if template uzytkownika jest poprawny, ustawia go jako aktywny --
+            if self.validate_template(template_data) == []:
+                self.active_templates_by_type[file_type] = template_data
 
     # ---- Funkcja zapisuje templates do pliku json ----
     def save_templates(self):

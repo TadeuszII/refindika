@@ -35,11 +35,26 @@ from PyQt6.QtWidgets import (
 )
 
 from backend.audio_metadata import AUDIO_METADATA_FIELDS, extract_audio_metadata
+from backend.video_metadata import VIDEO_METADATA_FIELDS, extract_video_metadata
 from templates_tab import METADATA_BY_TYPE, TemplatesTab, normalize_file_type
 
 
 FILE_TYPES = {
-    "Video": {".mp4", ".avi", ".mov", ".mkv", ".webm"},
+    "Video": {
+        ".mp4",
+        ".m4v",
+        ".mov",
+        ".3gp",
+        ".3g2",
+        ".flv",
+        ".ogg",
+        ".ogv",
+        ".avi",
+        ".mpeg",
+        ".mpg",
+        ".mkv",
+        ".webm",
+    },
     "Audio": {".mp3", ".wav", ".flac", ".aac", ".ogg", ".m4a"},
     "PDF": {".pdf"},
     "Word": {".doc", ".docx", ".odt", ".rtf"},
@@ -136,7 +151,7 @@ class ExtractionWorker:
             template = self.templates_by_type.get("audio")
             return extract_audio_metadata(path, template)
 
-        return {
+        base_record = {
             "name": path.name,
             "category": self.category,
             "extension": path.suffix.lower() or "none",
@@ -147,6 +162,12 @@ class ExtractionWorker:
             "path": str(path),
             "custom_name": path.name,
         }
+
+        if self.category == "Video":
+            video_metadata = extract_video_metadata(path)
+            base_record.update(video_metadata)
+
+        return base_record
 
 
 class ExtractionDialog(QDialog):
@@ -601,7 +622,7 @@ class MainWindow(QMainWindow):
     # Funkcja szuka wartosci bezposrednio w surowych metadanych Tika.
     def get_tika_metadata_value(self, file, metadata_name):
         tika_metadata = file.get("tika_metadata", {})
-        aliases = AUDIO_METADATA_FIELDS.get(metadata_name, [])
+        aliases = self.get_metadata_aliases(file, metadata_name)
 
         for alias in aliases:
             if alias in tika_metadata:
@@ -621,6 +642,16 @@ class MainWindow(QMainWindow):
                 return str(value)
 
         return ""
+
+    # Funkcja zwraca aliasy metadanych dla aktywnej kategorii.
+    def get_metadata_aliases(self, file, metadata_name):
+        file_type = file.get("file_type", file.get("category", "")).lower()
+
+        # -- if plik jest video, uzywa aliasow video Tika --
+        if file_type == "video":
+            return VIDEO_METADATA_FIELDS.get(metadata_name, [])
+
+        return AUDIO_METADATA_FIELDS.get(metadata_name, [])
 
     def apply_styles(self):
         self.setStyleSheet(
