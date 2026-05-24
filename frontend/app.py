@@ -5,6 +5,10 @@ import time
 from queue import Queue
 from pathlib import Path
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.append(str(PROJECT_ROOT))
+
 from PyQt6.QtCore import QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QApplication,
@@ -30,6 +34,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from backend.audio_metadata import AUDIO_METADATA_FIELDS, extract_audio_metadata
 from templates_tab import METADATA_BY_TYPE, TemplatesTab, normalize_file_type
 
 
@@ -102,10 +107,11 @@ class CategoryDialog(QDialog):
 
 
 class ExtractionWorker:
-    def __init__(self, category, files, events):
+    def __init__(self, category, files, events, templates_by_type):
         self.category = category
         self.files = files
         self.events = events
+        self.templates_by_type = templates_by_type
 
     def run(self):
         self.events.put(("status", self.category, "in progress"))
@@ -114,16 +120,7 @@ class ExtractionWorker:
         try:
             for index, path in enumerate(self.files):
                 time.sleep(0.18)
-                extracted.append(
-                    {
-                        "name": path.name,
-                        "category": self.category,
-                        "extension": path.suffix.lower() or "none",
-                        "modified": format_modified_time(path),
-                        "size": format_file_size(path.stat().st_size),
-                        "path": str(path),
-                    }
-                )
+                extracted.append(self.extract_file(path))
 
                 if index == len(self.files) - 1:
                     time.sleep(0.12)
@@ -134,17 +131,35 @@ class ExtractionWorker:
             self.events.put(("status", self.category, "error"))
             self.events.put(("finished", self.category, extracted))
 
+    def extract_file(self, path):
+        if self.category == "Audio":
+            template = self.templates_by_type.get("audio")
+            return extract_audio_metadata(path, template)
+
+        return {
+            "name": path.name,
+            "category": self.category,
+            "extension": path.suffix.lower() or "none",
+            "original_name": path.name,
+            "file_type": self.category.lower(),
+            "modified": format_modified_time(path),
+            "size": format_file_size(path.stat().st_size),
+            "path": str(path),
+            "custom_name": path.name,
+        }
+
 
 class ExtractionDialog(QDialog):
     extraction_finished = pyqtSignal(list)
 
-    def __init__(self, categorized_files, parent=None):
+    def __init__(self, categorized_files, templates_by_type, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Metadata extraction")
         self.setModal(True)
         self.resize(460, 300)
 
         self.categorized_files = categorized_files
+        self.templates_by_type = templates_by_type
         self.threads = []
         self.events = Queue()
         self.poll_timer = QTimer(self)
@@ -193,7 +208,9 @@ class ExtractionDialog(QDialog):
             return
 
         for category, files in self.categorized_files.items():
-            worker = ExtractionWorker(category, files, self.events)
+            worker = ExtractionWorker(
+                category, files, self.events, self.templates_by_type
+            )
             thread = threading.Thread(target=worker.run, daemon=True)
             self.threads.append(thread)
             thread.start()
@@ -400,7 +417,9 @@ class MainWindow(QMainWindow):
         selected = category_dialog.selected_categories()
         categorized_files = self.group_files_by_category(all_files, selected)
 
-        extraction_dialog = ExtractionDialog(categorized_files, self)
+        extraction_dialog = ExtractionDialog(
+            categorized_files, self.template_tab.active_templates_by_type.copy(), self
+        )
         extraction_dialog.extraction_finished.connect(self.load_results)
         extraction_dialog.show()
         extraction_dialog.start_extraction()
@@ -428,9 +447,23 @@ class MainWindow(QMainWindow):
             if any(file["category"] == category for file in self.current_files):
                 self.category_list.addItem(category)
 
-        self.category_list.setCurrentRow(0)
-        self.active_category = "All files"
+        audio_row = self.find_category_row("Audio")
+        if audio_row is not None:
+            self.category_list.setCurrentRow(audio_row)
+            self.active_category = "Audio"
+        else:
+            self.category_list.setCurrentRow(0)
+            self.active_category = "All files"
+
         self.refresh_table()
+
+    # Funkcja dla znalezienia kategorii w lewym panelu.
+    def find_category_row(self, category):
+        for row in range(self.category_list.count()):
+            if self.category_list.item(row).text() == category:
+                return row
+
+        return None
 
     # Funkcja dla zmiany aktywnej kategorii w lewym panelu.
     def change_category(self, item):
@@ -449,16 +482,7 @@ class MainWindow(QMainWindow):
             ):
                 continue
 
-            searchable = " ".join(
-                [
-                    file["name"],
-                    file["category"],
-                    file["extension"],
-                    file["modified"],
-                    file["size"],
-                    file["path"],
-                ]
-            ).lower()
+            searchable = " ".join(str(value) for value in file.values()).lower()
             if query and query not in searchable:
                 continue
 
@@ -508,8 +532,7 @@ class MainWindow(QMainWindow):
     # Funkcja dla wyswietlania tabeli kategorii wedlug aktywnego template.
     def show_category_table(self, rows):
         metadata_columns = self.get_active_metadata_columns()
-        headers = ["Name"] + [self.format_header_name(item) for item in metadata_columns]
-        headers.append("Path")
+        headers = [self.format_header_name(item) for item in metadata_columns]
 
         self.files_table.setColumnCount(len(headers))
         self.files_table.setHorizontalHeaderLabels(headers)
@@ -521,22 +544,19 @@ class MainWindow(QMainWindow):
             )
             self.files_table.setColumnWidth(column, 140)
 
-        path_column = len(headers) - 1
-        self.files_table.horizontalHeader().setSectionResizeMode(
-            path_column, QHeaderView.ResizeMode.Stretch
-        )
+        if headers:
+            path_column = len(headers) - 1
+            self.files_table.horizontalHeader().setSectionResizeMode(
+                path_column, QHeaderView.ResizeMode.Stretch
+            )
 
         self.files_table.setRowCount(len(rows))
 
         # --- Loops wypelnia tabele kategoriami i metadanymi ---
         for row, file in enumerate(rows):
-            self.files_table.setItem(row, 0, QTableWidgetItem(file["name"]))
-
-            for index, metadata_name in enumerate(metadata_columns, start=1):
+            for index, metadata_name in enumerate(metadata_columns):
                 value = self.get_metadata_value(file, metadata_name)
                 self.files_table.setItem(row, index, QTableWidgetItem(value))
-
-            self.files_table.setItem(row, path_column, QTableWidgetItem(file["path"]))
 
     # Funkcja zwraca aktywne metadane dla wybranej kategorii.
     def get_active_metadata_columns(self):
@@ -544,20 +564,13 @@ class MainWindow(QMainWindow):
 
         # -- if brak template, uzywa pelnej listy metadanych kategorii --
         if not active_template:
-            return [
-                item
-                for item in METADATA_BY_TYPE.get(self.active_category, [])
-                if item != "original_name"
-            ]
+            return METADATA_BY_TYPE.get(self.active_category, [])
 
         selected_columns = []
         file_type = normalize_file_type(active_template.get("Type", ""))
 
         # --- Loops wybiera tylko zaznaczone metadane z template ---
         for metadata_name in METADATA_BY_TYPE.get(file_type, []):
-            if metadata_name == "original_name":
-                continue
-
             if active_template.get(metadata_name, True):
                 selected_columns.append(metadata_name)
 
@@ -574,9 +587,40 @@ class MainWindow(QMainWindow):
             return file.get("extension", "")
 
         if metadata_name == "original_name":
-            return file.get("name", "")
+            return file.get("original_name", file.get("name", ""))
 
-        return str(file.get(metadata_name, ""))
+        if metadata_name == "file_type":
+            return file.get("file_type", file.get("category", "").lower())
+
+        value = file.get(metadata_name, "")
+        if value:
+            return str(value)
+
+        return self.get_tika_metadata_value(file, metadata_name)
+
+    # Funkcja szuka wartosci bezposrednio w surowych metadanych Tika.
+    def get_tika_metadata_value(self, file, metadata_name):
+        tika_metadata = file.get("tika_metadata", {})
+        aliases = AUDIO_METADATA_FIELDS.get(metadata_name, [])
+
+        for alias in aliases:
+            if alias in tika_metadata:
+                return str(tika_metadata[alias])
+
+        normalized_metadata = {
+            str(key).strip().lower().replace("-", "_").replace(" ", "_"): value
+            for key, value in tika_metadata.items()
+        }
+
+        for alias in aliases:
+            normalized_alias = (
+                str(alias).strip().lower().replace("-", "_").replace(" ", "_")
+            )
+            value = normalized_metadata.get(normalized_alias)
+            if value:
+                return str(value)
+
+        return ""
 
     def apply_styles(self):
         self.setStyleSheet(

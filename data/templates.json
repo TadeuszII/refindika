@@ -10,5 +10,31 @@
         "codec": false,
         "bitrate": false,
         "extension": true
+    },
+    {
+        "Name": "Testaudio",
+        "Type": "audio",
+        "Template": "{genre}_{original_name}",
+        "original_name": true,
+        "custom_name": true,
+        "file_type": false,
+        "modified": false,
+        "path": false,
+        "mime_type": true,
+        "resource_name": true,
+        "duration": true,
+        "sample_rate": true,
+        "channels": false,
+        "bitrate": false,
+        "codec": false,
+        "title": false,
+        "artist": false,
+        "album": false,
+        "genre": false,
+        "year": false,
+        "track_number": false,
+        "composer": false,
+        "copyright": false,
+        "encoder": false
     }
 ]

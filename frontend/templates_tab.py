@@ -31,11 +31,26 @@ METADATA_BY_TYPE = {
     ],
     "Audio": [
         "original_name",
+        "custom_name",
+        "file_type",
+        "modified",
+        "path",
+        "mime_type",
+        "resource_name",
         "duration",
         "sample_rate",
+        "channels",
         "bitrate",
         "codec",
-        "extension",
+        "title",
+        "artist",
+        "album",
+        "genre",
+        "year",
+        "track_number",
+        "composer",
+        "copyright",
+        "encoder",
     ],
     "PDF": [
         "original_name",
@@ -118,7 +133,8 @@ class TemplatesTab(QWidget):
         self.metadata_table = QTableWidget(0, 3)
         self.metadata_table.setHorizontalHeaderLabels(["Show", "Metadata", "Action"])
         self.setup_compact_table(self.metadata_table)
-        self.metadata_table.setFixedWidth(320)
+        self.metadata_table.setFixedWidth(370)
+        self.metadata_table.setFixedHeight(260)
         self.metadata_table.setAlternatingRowColors(True)
         self.metadata_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         form_layout.addWidget(self.metadata_table)
@@ -156,7 +172,8 @@ class TemplatesTab(QWidget):
         self.saved_templates_table = QTableWidget(0, 3)
         self.saved_templates_table.setHorizontalHeaderLabels(["Name", "Category", "Action"])
         self.setup_compact_table(self.saved_templates_table)
-        self.saved_templates_table.setFixedWidth(340)
+        self.saved_templates_table.setFixedWidth(370)
+        self.saved_templates_table.setFixedHeight(180)
         self.saved_templates_table.setAlternatingRowColors(True)
         self.saved_templates_table.setEditTriggers(
             QTableWidget.EditTrigger.NoEditTriggers
@@ -171,7 +188,7 @@ class TemplatesTab(QWidget):
         table.verticalHeader().setVisible(False)
         table.horizontalHeader().setStretchLastSection(False)
         table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         table.setSizeAdjustPolicy(QAbstractScrollArea.SizeAdjustPolicy.AdjustToContents)
         table.setShowGrid(True)
 
@@ -180,10 +197,7 @@ class TemplatesTab(QWidget):
 
     # ---- Funkcja ustawia wysokosc tabeli wedlug liczby wierszy ----
     def set_table_height(self, table, row_count):
-        header_height = table.horizontalHeader().height()
-        row_height = table.verticalHeader().defaultSectionSize()
-        frame_size = 2
-        table.setFixedHeight(header_height + row_height * row_count + frame_size)
+        table.resizeRowsToContents()
 
     # ---- Funkcja zwraca sciezke do pliku z template ----
     def get_templates_file(self):
@@ -205,7 +219,7 @@ class TemplatesTab(QWidget):
         self.metadata_checkboxes = {}
         self.metadata_table.setRowCount(len(metadata_list))
         self.metadata_table.setColumnWidth(0, 58)
-        self.metadata_table.setColumnWidth(1, 150)
+        self.metadata_table.setColumnWidth(1, 200)
         self.metadata_table.setColumnWidth(2, 82)
 
         # --- Loops wypelnia tabele metadanych checkboxami i przyciskami Add ---
@@ -303,7 +317,7 @@ class TemplatesTab(QWidget):
 
             # -- if pomija defaulty, bo sa w osobnym pliku --
             if not is_default:
-                self.templates.append(normalized_template)
+                self.add_or_update_template(normalized_template)
 
     # ---- Funkcja ustawia aktywne templates na podstawie defaultow ----
     def setup_active_templates(self):
@@ -311,6 +325,11 @@ class TemplatesTab(QWidget):
 
         # --- Loops ustawia default template dla kazdego typu pliku ---
         for template_data in self.default_templates:
+            file_type = template_data["Type"]
+            self.active_templates_by_type[file_type] = template_data
+
+        # --- Loops nadpisuje defaulty zapisanymi template uzytkownika ---
+        for template_data in self.templates:
             file_type = template_data["Type"]
             self.active_templates_by_type[file_type] = template_data
 
@@ -336,6 +355,7 @@ class TemplatesTab(QWidget):
             return
 
         self.add_or_update_template(template_data)
+        self.apply_template(template_data)
         self.save_templates()
         self.refresh_templates_table()
         QMessageBox.information(self, "Saved", "Template has been saved.")
@@ -429,19 +449,19 @@ class TemplatesTab(QWidget):
 
     # ---- Funkcja dodaje nowy template albo aktualizuje istniejacy ----
     def add_or_update_template(self, template_data):
-        # --- Loops szuka template o tej samej nazwie i typie pliku ---
+        normalized_template = self.normalize_template(template_data)
+
+        # --- Loops szuka template o tym samym typie pliku ---
         for index, saved_template in enumerate(self.templates):
-            saved_name = saved_template.get("Name", saved_template.get("name"))
             saved_type = saved_template.get("Type", saved_template.get("file_type"))
-            same_name = saved_name == template_data["Name"]
-            same_type = saved_type == template_data["Type"]
+            same_type = saved_type == normalized_template["Type"]
 
             # -- if aktualizuje istniejacy template --
-            if same_name and same_type:
-                self.templates[index] = template_data
+            if same_type:
+                self.templates[index] = normalized_template
                 return
 
-        self.templates.append(template_data)
+        self.templates.append(normalized_template)
 
     # ---- Funkcja odswieza tabele zapisanych templates ----
     def refresh_templates_table(self):
