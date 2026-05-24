@@ -1,0 +1,47 @@
+[
+    {
+        "Name": "Default",
+        "Type": "video",
+        "Template": "{original_name}_{duration}_{resolution}_{fps}_{extension}",
+        "original_name": true,
+        "duration": true,
+        "resolution": true,
+        "fps": true,
+        "codec": true,
+        "bitrate": true,
+        "extension": true
+    },
+    {
+        "Name": "Default",
+        "Type": "audio",
+        "Template": "{original_name}_{duration}_{sample_rate}_{bitrate}_{extension}",
+        "original_name": true,
+        "duration": true,
+        "sample_rate": true,
+        "bitrate": true,
+        "codec": true,
+        "extension": true
+    },
+    {
+        "Name": "Default",
+        "Type": "pdf",
+        "Template": "{original_name}_{author}_{title}_{pages}_{extension}",
+        "original_name": true,
+        "title": true,
+        "author": true,
+        "pages": true,
+        "word_count": true,
+        "extension": true
+    },
+    {
+        "Name": "Default",
+        "Type": "word",
+        "Template": "{original_name}_{author}_{title}__{word_count}_{extension}",
+        "original_name": true,
+        "title": true,
+        "author": true,
+        "pages": true,
+        "word_count": true,
+        "extension": true
+    }
+]

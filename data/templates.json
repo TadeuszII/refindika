@@ -1,28 +1,14 @@
 [
     {
-        "name": "Default",
-        "file_type": "Video",
-        "pattern": "{original_name}{duration}{resolution}"
-    },
-    {
-        "name": "Test1",
-        "file_type": "Video",
-        "pattern": "{original_name}_{codec}_{extension}"
-    },
-    {
-        "name": "Test2",
-        "file_type": "Video",
-        "pattern": "{resolution}_{fps}_{duration}_{original_name}"
-    },
-    {
-        "Name": "Test3",
-        "Type": "pdf",
-        "Template": "{original_name}_{title}_{word_count}Test",
-        "original_name": true,
-        "title": false,
-        "author": false,
-        "pages": false,
-        "word_count": true,
+        "Name": "Shrek2",
+        "Type": "video",
+        "Template": "Shrek2_{resolution}_{fps}_{extension}",
+        "original_name": false,
+        "duration": true,
+        "resolution": true,
+        "fps": false,
+        "codec": false,
+        "bitrate": false,
         "extension": true
     }
 ]

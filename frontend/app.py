@@ -30,7 +30,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from templates_tab import TemplatesTab
+from templates_tab import METADATA_BY_TYPE, TemplatesTab, normalize_file_type
 
 
 FILE_TYPES = {
@@ -243,6 +243,7 @@ class MainWindow(QMainWindow):
 
         self.folder_tab = QWidget()
         self.template_tab = TemplatesTab()
+        self.template_tab.template_changed = self.refresh_table
 
         self.tabs.addTab(self.folder_tab, "Folder")
         self.tabs.addTab(self.template_tab, "Templates")
@@ -463,6 +464,39 @@ class MainWindow(QMainWindow):
 
             rows.append(file)
 
+        # -- if zostawia standardowy widok dla wszystkich plikow --
+        if self.active_category == "All files":
+            self.show_all_files_table(rows)
+            return
+
+        self.show_category_table(rows)
+
+    # Funkcja dla wyswietlania standardowej tabeli All files.
+    def show_all_files_table(self, rows):
+        self.files_table.setColumnCount(5)
+        self.files_table.setHorizontalHeaderLabels(
+            ["Name", "Type", "Modified", "Size", "Path"]
+        )
+        self.files_table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.Interactive
+        )
+        self.files_table.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.ResizeMode.Interactive
+        )
+        self.files_table.horizontalHeader().setSectionResizeMode(
+            2, QHeaderView.ResizeMode.Interactive
+        )
+        self.files_table.horizontalHeader().setSectionResizeMode(
+            3, QHeaderView.ResizeMode.Interactive
+        )
+        self.files_table.horizontalHeader().setSectionResizeMode(
+            4, QHeaderView.ResizeMode.Stretch
+        )
+        self.files_table.setColumnWidth(0, 155)
+        self.files_table.setColumnWidth(1, 150)
+        self.files_table.setColumnWidth(2, 155)
+        self.files_table.setColumnWidth(3, 150)
+
         self.files_table.setRowCount(len(rows))
         for row, file in enumerate(rows):
             self.files_table.setItem(row, 0, QTableWidgetItem(file["name"]))
@@ -470,6 +504,79 @@ class MainWindow(QMainWindow):
             self.files_table.setItem(row, 2, QTableWidgetItem(file["modified"]))
             self.files_table.setItem(row, 3, QTableWidgetItem(file["size"]))
             self.files_table.setItem(row, 4, QTableWidgetItem(file["path"]))
+
+    # Funkcja dla wyswietlania tabeli kategorii wedlug aktywnego template.
+    def show_category_table(self, rows):
+        metadata_columns = self.get_active_metadata_columns()
+        headers = ["Name"] + [self.format_header_name(item) for item in metadata_columns]
+        headers.append("Path")
+
+        self.files_table.setColumnCount(len(headers))
+        self.files_table.setHorizontalHeaderLabels(headers)
+
+        # --- Loops ustawia szerokosci kolumn kategorii ---
+        for column in range(len(headers)):
+            self.files_table.horizontalHeader().setSectionResizeMode(
+                column, QHeaderView.ResizeMode.Interactive
+            )
+            self.files_table.setColumnWidth(column, 140)
+
+        path_column = len(headers) - 1
+        self.files_table.horizontalHeader().setSectionResizeMode(
+            path_column, QHeaderView.ResizeMode.Stretch
+        )
+
+        self.files_table.setRowCount(len(rows))
+
+        # --- Loops wypelnia tabele kategoriami i metadanymi ---
+        for row, file in enumerate(rows):
+            self.files_table.setItem(row, 0, QTableWidgetItem(file["name"]))
+
+            for index, metadata_name in enumerate(metadata_columns, start=1):
+                value = self.get_metadata_value(file, metadata_name)
+                self.files_table.setItem(row, index, QTableWidgetItem(value))
+
+            self.files_table.setItem(row, path_column, QTableWidgetItem(file["path"]))
+
+    # Funkcja zwraca aktywne metadane dla wybranej kategorii.
+    def get_active_metadata_columns(self):
+        active_template = self.template_tab.get_active_template(self.active_category)
+
+        # -- if brak template, uzywa pelnej listy metadanych kategorii --
+        if not active_template:
+            return [
+                item
+                for item in METADATA_BY_TYPE.get(self.active_category, [])
+                if item != "original_name"
+            ]
+
+        selected_columns = []
+        file_type = normalize_file_type(active_template.get("Type", ""))
+
+        # --- Loops wybiera tylko zaznaczone metadane z template ---
+        for metadata_name in METADATA_BY_TYPE.get(file_type, []):
+            if metadata_name == "original_name":
+                continue
+
+            if active_template.get(metadata_name, True):
+                selected_columns.append(metadata_name)
+
+        return selected_columns
+
+    # Funkcja zamienia nazwe metadanej na czytelny naglowek tabeli.
+    def format_header_name(self, metadata_name):
+        return metadata_name.replace("_", " ").title()
+
+    # Funkcja zwraca wartosc metadanej z danych pliku.
+    def get_metadata_value(self, file, metadata_name):
+        # -- if podstawowe dane juz istnieja w obecnym modelu pliku --
+        if metadata_name == "extension":
+            return file.get("extension", "")
+
+        if metadata_name == "original_name":
+            return file.get("name", "")
+
+        return str(file.get(metadata_name, ""))
 
     def apply_styles(self):
         self.setStyleSheet(

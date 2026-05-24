@@ -5,7 +5,6 @@ from pathlib import Path
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QAbstractScrollArea,
-    QCheckBox,
     QComboBox,
     QHBoxLayout,
     QHeaderView,
@@ -68,13 +67,18 @@ class TemplatesTab(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
 
+        self.default_templates = []
         self.templates = []
         self.metadata_checkboxes = {}
+        self.default_templates_file = self.get_default_templates_file()
         self.templates_file = self.get_templates_file()
         self.selected_template = None
+        self.active_templates_by_type = {}
+        self.template_changed = None
 
         self.setup_ui()
         self.load_templates()
+        self.setup_active_templates()
         self.refresh_metadata_table()
         self.refresh_templates_table()
 
@@ -187,6 +191,12 @@ class TemplatesTab(QWidget):
         data_folder = project_folder / "data"
         return data_folder / "templates.json"
 
+    # ---- Funkcja zwraca sciezke do pliku z domyslnymi template ----
+    def get_default_templates_file(self):
+        project_folder = Path(__file__).resolve().parent.parent
+        data_folder = project_folder / "data"
+        return data_folder / "default_template.json"
+
     # ---- Funkcja odswieza liste metadanych dla wybranego typu pliku ----
     def refresh_metadata_table(self):
         selected_type = self.file_type_select.currentText()
@@ -234,24 +244,75 @@ class TemplatesTab(QWidget):
         if placeholder not in current_pattern:
             self.pattern_input.setText(current_pattern + placeholder)
 
-    # ---- Funkcja wczytuje zapisane templates z pliku json ----
-    def load_templates(self):
-        if not self.templates_file.exists():
-            self.templates = []
-            return
+    # ---- Funkcja normalizuje template do jednego formatu danych ----
+    def normalize_template(self, template_data):
+        file_type = template_data.get("Type", template_data.get("file_type", ""))
+        normalized_type = normalize_file_type(file_type)
+
+        normalized_template = {
+            "Name": template_data.get("Name", template_data.get("name", "")),
+            "Type": normalized_type.lower(),
+            "Template": template_data.get(
+                "Template", template_data.get("pattern", "")
+            ),
+        }
+
+        # --- Loops przenosi zapisane ustawienia checkboxow metadanych ---
+        if normalized_type in METADATA_BY_TYPE:
+            for metadata_name in METADATA_BY_TYPE[normalized_type]:
+                normalized_template[metadata_name] = template_data.get(
+                    metadata_name, True
+                )
+
+        return normalized_template
+
+    # ---- Funkcja wczytuje liste template z podanego pliku json ----
+    def read_templates_file(self, file_path):
+        if not file_path.exists():
+            return []
 
         try:
-            with self.templates_file.open("r", encoding="utf-8") as file:
+            with file_path.open("r", encoding="utf-8") as file:
                 loaded_templates = json.load(file)
         except (OSError, json.JSONDecodeError):
-            self.templates = []
-            return
+            return []
 
         # -- if sprawdza czy plik zawiera liste danych --
         if isinstance(loaded_templates, list):
-            self.templates = loaded_templates
-        else:
-            self.templates = []
+            return loaded_templates
+
+        return []
+
+    # ---- Funkcja wczytuje domyslne i uzytkownika templates ----
+    def load_templates(self):
+        default_templates = self.read_templates_file(self.default_templates_file)
+        user_templates = self.read_templates_file(self.templates_file)
+
+        self.default_templates = [
+            self.normalize_template(template_data)
+            for template_data in default_templates
+            if self.validate_template(template_data) == []
+        ]
+
+        self.templates = []
+
+        # --- Loops zostawia tylko templates uzytkownika ---
+        for template_data in user_templates:
+            normalized_template = self.normalize_template(template_data)
+            is_default = normalized_template["Name"].lower() == "default"
+
+            # -- if pomija defaulty, bo sa w osobnym pliku --
+            if not is_default:
+                self.templates.append(normalized_template)
+
+    # ---- Funkcja ustawia aktywne templates na podstawie defaultow ----
+    def setup_active_templates(self):
+        self.active_templates_by_type = {}
+
+        # --- Loops ustawia default template dla kazdego typu pliku ---
+        for template_data in self.default_templates:
+            file_type = template_data["Type"]
+            self.active_templates_by_type[file_type] = template_data
 
     # ---- Funkcja zapisuje templates do pliku json ----
     def save_templates(self):
@@ -264,6 +325,10 @@ class TemplatesTab(QWidget):
     def save_current_template(self):
         template_data = self.get_form_data()
         errors = self.validate_template(template_data)
+
+        # -- if blokuje zapisywanie domyslnych templates --
+        if template_data["Name"].lower() == "default":
+            errors.append("Default templates cannot be changed.")
 
         # -- if zatrzymuje zapis jezeli template jest niepoprawny --
         if errors:
@@ -285,8 +350,24 @@ class TemplatesTab(QWidget):
             QMessageBox.warning(self, "Invalid template", "\n".join(errors))
             return
 
-        self.selected_template = template_data
+        self.apply_template(template_data)
         QMessageBox.information(self, "Template", "Template has been selected.")
+
+    # ---- Funkcja ustawia template jako aktywny dla jego typu pliku ----
+    def apply_template(self, template_data):
+        normalized_template = self.normalize_template(template_data)
+        file_type = normalized_template["Type"]
+        self.active_templates_by_type[file_type] = normalized_template
+        self.selected_template = normalized_template
+
+        # -- if glowny widok chce odswiezyc tabele po zmianie template --
+        if self.template_changed is not None:
+            self.template_changed()
+
+    # ---- Funkcja zwraca aktywny template dla wybranego typu pliku ----
+    def get_active_template(self, file_type):
+        normalized_type = normalize_file_type(file_type).lower()
+        return self.active_templates_by_type.get(normalized_type)
 
     # ---- Funkcja zbiera dane wpisane przez uzytkownika ----
     def get_form_data(self):
@@ -364,13 +445,14 @@ class TemplatesTab(QWidget):
 
     # ---- Funkcja odswieza tabele zapisanych templates ----
     def refresh_templates_table(self):
-        self.saved_templates_table.setRowCount(len(self.templates))
+        all_templates = self.default_templates + self.templates
+        self.saved_templates_table.setRowCount(len(all_templates))
         self.saved_templates_table.setColumnWidth(0, 150)
         self.saved_templates_table.setColumnWidth(1, 90)
         self.saved_templates_table.setColumnWidth(2, 82)
 
         # --- Loops wypelnia tabele zapisanych templates ---
-        for row, template_data in enumerate(self.templates):
+        for row, template_data in enumerate(all_templates):
             name = template_data.get("Name", template_data.get("name", ""))
             file_type = template_data.get("Type", template_data.get("file_type", ""))
             name_item = QTableWidgetItem(name)
@@ -383,14 +465,19 @@ class TemplatesTab(QWidget):
             use_button.setObjectName("PrimaryButton")
             use_button.setFixedWidth(64)
             use_button.clicked.connect(
-                lambda _checked=False, data=template_data: self.load_saved_template(
-                    data
-                )
+                lambda _checked=False, data=template_data: self.use_saved_template(data)
             )
             self.saved_templates_table.setCellWidget(row, 2, use_button)
 
-        visible_rows = max(len(self.templates), 1)
+        visible_rows = max(len(all_templates), 1)
         self.set_table_height(self.saved_templates_table, visible_rows)
+
+    # ---- Funkcja laduje i stosuje template z tabeli zapisanych templates ----
+    def use_saved_template(self, template_data):
+        if not self.load_saved_template(template_data):
+            return
+
+        self.apply_template(template_data)
 
     # ---- Funkcja laduje zapisany template do pol na gorze ----
     def load_saved_template(self, template_data):
@@ -399,7 +486,7 @@ class TemplatesTab(QWidget):
         # -- if blokuje ladowanie uszkodzonego template --
         if errors:
             QMessageBox.warning(self, "Invalid template", "\n".join(errors))
-            return
+            return False
 
         template_name = template_data.get("Name", template_data.get("name", ""))
         file_type = template_data.get("Type", template_data.get("file_type", ""))
@@ -418,4 +505,5 @@ class TemplatesTab(QWidget):
                 state = Qt.CheckState.Checked if is_checked else Qt.CheckState.Unchecked
                 checkbox_item.setCheckState(state)
 
-        self.selected_template = template_data
+        self.selected_template = self.normalize_template(template_data)
+        return True
