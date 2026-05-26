@@ -35,6 +35,7 @@ from PyQt6.QtWidgets import (
 )
 
 from backend.audio_metadata import AUDIO_METADATA_FIELDS, extract_audio_metadata
+from backend.pdf_metadata import PDF_METADATA_FIELDS, extract_pdf_metadata
 from backend.video_metadata import VIDEO_METADATA_FIELDS, extract_video_metadata
 from templates_tab import METADATA_BY_TYPE, TemplatesTab, normalize_file_type
 
@@ -166,6 +167,10 @@ class ExtractionWorker:
         if self.category == "Video":
             video_metadata = extract_video_metadata(path)
             base_record.update(video_metadata)
+
+        if self.category == "PDF":
+            pdf_metadata = extract_pdf_metadata(path)
+            base_record.update(pdf_metadata)
 
         return base_record
 
@@ -650,6 +655,10 @@ class MainWindow(QMainWindow):
         # -- if plik jest video, uzywa aliasow video Tika --
         if file_type == "video":
             return VIDEO_METADATA_FIELDS.get(metadata_name, [])
+
+        # -- if plik jest pdf, uzywa aliasow pdf Tika --
+        if file_type == "pdf":
+            return PDF_METADATA_FIELDS.get(metadata_name, [])
 
         return AUDIO_METADATA_FIELDS.get(metadata_name, [])
 
