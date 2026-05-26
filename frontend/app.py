@@ -36,6 +36,7 @@ from PyQt6.QtWidgets import (
 
 from backend.audio_metadata import AUDIO_METADATA_FIELDS, extract_audio_metadata
 from backend.pdf_metadata import PDF_METADATA_FIELDS, extract_pdf_metadata
+from backend.rename_files import build_unique_path, rename_file, render_custom_name
 from backend.video_metadata import VIDEO_METADATA_FIELDS, extract_video_metadata
 from templates_tab import METADATA_BY_TYPE, TemplatesTab, normalize_file_type
 
@@ -279,6 +280,7 @@ class MainWindow(QMainWindow):
         self.resize(990, 610)
 
         self.current_files = []
+        self.visible_files = []
         self.active_category = "All files"
 
         self.tabs = QTabWidget()
@@ -367,6 +369,18 @@ class MainWindow(QMainWindow):
         filter_button.setObjectName("FilterButton")
         filter_button.clicked.connect(self.refresh_table)
         filter_bar.addWidget(filter_button)
+
+        # Przycisk dla zaznaczenia wszystkich widocznych plikow.
+        self.select_all_button = QPushButton("Select All")
+        self.select_all_button.clicked.connect(self.select_all_visible_files)
+        filter_bar.addWidget(self.select_all_button)
+
+        # Przycisk dla zmiany nazw zaznaczonych plikow.
+        self.rename_button = QPushButton("Rename selected")
+        self.rename_button.setObjectName("PrimaryButton")
+        self.rename_button.clicked.connect(self.rename_selected_files)
+        filter_bar.addWidget(self.rename_button)
+
         table_layout.addLayout(filter_bar)
 
         # Tabela dla wynikow skanowania folderu.
@@ -411,6 +425,10 @@ class MainWindow(QMainWindow):
         self.category_list.addItem(item)
         self.category_list.setCurrentItem(item)
         self.active_category = "All files"
+
+        # -- if przyciski juz istnieja, wylacza rename dla All files --
+        if hasattr(self, "select_all_button"):
+            self.set_rename_buttons_enabled(False)
 
     # Funkcja dla otwierania okna wyboru folderu.
     def open_folder(self):
@@ -516,13 +534,22 @@ class MainWindow(QMainWindow):
 
         # -- if zostawia standardowy widok dla wszystkich plikow --
         if self.active_category == "All files":
+            self.set_rename_buttons_enabled(False)
             self.show_all_files_table(rows)
             return
 
+        self.set_rename_buttons_enabled(True)
         self.show_category_table(rows)
+
+    # Funkcja wlacza albo wylacza przyciski rename dla aktualnego widoku.
+    def set_rename_buttons_enabled(self, is_enabled):
+        self.select_all_button.setEnabled(is_enabled)
+        self.rename_button.setEnabled(is_enabled)
 
     # Funkcja dla wyswietlania standardowej tabeli All files.
     def show_all_files_table(self, rows):
+        self.visible_files = rows
+        self.files_table.clearContents()
         self.files_table.setColumnCount(5)
         self.files_table.setHorizontalHeaderLabels(
             ["Name", "Type", "Modified", "Size", "Path"]
@@ -557,14 +584,22 @@ class MainWindow(QMainWindow):
 
     # Funkcja dla wyswietlania tabeli kategorii wedlug aktywnego template.
     def show_category_table(self, rows):
+        self.visible_files = rows
         metadata_columns = self.get_active_metadata_columns()
-        headers = [self.format_header_name(item) for item in metadata_columns]
+        headers = ["Select"] + [
+            self.format_header_name(item) for item in metadata_columns
+        ]
 
+        self.files_table.clearContents()
         self.files_table.setColumnCount(len(headers))
         self.files_table.setHorizontalHeaderLabels(headers)
+        self.files_table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.Interactive
+        )
+        self.files_table.setColumnWidth(0, 72)
 
         # --- Loops ustawia szerokosci kolumn kategorii ---
-        for column in range(len(headers)):
+        for column in range(1, len(headers)):
             self.files_table.horizontalHeader().setSectionResizeMode(
                 column, QHeaderView.ResizeMode.Interactive
             )
@@ -580,9 +615,115 @@ class MainWindow(QMainWindow):
 
         # --- Loops wypelnia tabele kategoriami i metadanymi ---
         for row, file in enumerate(rows):
+            checkbox = QCheckBox()
+            self.files_table.setCellWidget(row, 0, checkbox)
+
             for index, metadata_name in enumerate(metadata_columns):
                 value = self.get_metadata_value(file, metadata_name)
-                self.files_table.setItem(row, index, QTableWidgetItem(value))
+                self.files_table.setItem(row, index + 1, QTableWidgetItem(value))
+
+    # Funkcja zaznacza wszystkie widoczne pliki w kategorii.
+    def select_all_visible_files(self):
+        if self.active_category == "All files":
+            return
+
+        # --- Loops zaznacza checkboxy w tabeli ---
+        for row in range(self.files_table.rowCount()):
+            checkbox = self.files_table.cellWidget(row, 0)
+
+            # -- if w komorce jest checkbox, zaznacza go --
+            if isinstance(checkbox, QCheckBox):
+                checkbox.setChecked(True)
+
+    # Funkcja zwraca zaznaczone pliki z aktualnej tabeli.
+    def get_selected_files(self):
+        selected_files = []
+
+        # --- Loops zbiera rekordy zaznaczone checkboxami ---
+        for row, file in enumerate(self.visible_files):
+            checkbox = self.files_table.cellWidget(row, 0)
+
+            if isinstance(checkbox, QCheckBox) and checkbox.isChecked():
+                selected_files.append(file)
+
+        return selected_files
+
+    # Funkcja zmienia nazwy zaznaczonych plikow.
+    def rename_selected_files(self):
+        if self.active_category == "All files":
+            return
+
+        active_template = self.template_tab.get_active_template(self.active_category)
+
+        # -- if brak aktywnego template, pokazuje blad --
+        if not active_template:
+            QMessageBox.warning(self, "Rename", "Select a template first.")
+            return
+
+        selected_files = self.get_selected_files()
+
+        # -- if user nie zaznaczyl plikow, pokazuje informacje --
+        if not selected_files:
+            QMessageBox.information(self, "Rename", "Select files to rename.")
+            return
+
+        preview_lines = self.build_rename_preview(selected_files, active_template)
+        preview_text = "\n".join(preview_lines[:20])
+
+        # -- if lista jest dluga, pokazuje tylko pierwsze elementy --
+        if len(preview_lines) > 20:
+            preview_text += f"\n... and {len(preview_lines) - 20} more"
+
+        answer = QMessageBox.question(
+            self,
+            "Confirm rename",
+            f"Rename selected files?\n\n{preview_text}",
+        )
+
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        errors = []
+
+        # --- Loops zmienia nazwy plikow na dysku ---
+        for file in selected_files:
+            try:
+                rename_file(file, active_template)
+                self.update_file_after_rename(file)
+            except Exception as error:
+                errors.append(f"{file.get('name', '')}: {error}")
+
+        self.refresh_table()
+
+        if errors:
+            QMessageBox.warning(self, "Rename errors", "\n".join(errors))
+            return
+
+        QMessageBox.information(self, "Rename", "Selected files have been renamed.")
+
+    # Funkcja buduje podglad rename dla okna potwierdzenia.
+    def build_rename_preview(self, selected_files, active_template):
+        preview_lines = []
+
+        # --- Loops tworzy linie starej i nowej nazwy ---
+        for file in selected_files:
+            try:
+                new_name = render_custom_name(active_template, file)
+                new_path = build_unique_path(file.get("path", ""), new_name)
+                preview_lines.append(f"{file.get('name', '')} -> {new_path.name}")
+            except Exception as error:
+                preview_lines.append(f"{file.get('name', '')} -> error: {error}")
+
+        return preview_lines
+
+    # Funkcja aktualizuje podstawowe dane pliku po rename.
+    def update_file_after_rename(self, file):
+        path = Path(file.get("path", ""))
+
+        # -- if plik istnieje po rename, odswieza rozmiar i date --
+        if path.exists():
+            file["modified"] = format_modified_time(path)
+            file["size"] = format_file_size(path.stat().st_size)
 
     # Funkcja zwraca aktywne metadane dla wybranej kategorii.
     def get_active_metadata_columns(self):
@@ -609,6 +750,10 @@ class MainWindow(QMainWindow):
     # Funkcja zwraca wartosc metadanej z danych pliku.
     def get_metadata_value(self, file, metadata_name):
         # -- if podstawowe dane juz istnieja w obecnym modelu pliku --
+        if metadata_name == "custom_name":
+            active_template = self.template_tab.get_active_template(self.active_category)
+            return render_custom_name(active_template, file)
+
         if metadata_name == "extension":
             return file.get("extension", "")
 

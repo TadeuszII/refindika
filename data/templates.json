@@ -1,8 +1,8 @@
 [
     {
-        "Name": "VideoTest2",
+        "Name": "Test3_video",
         "Type": "video",
-        "Template": "Video_{original_name}_{custom_name}",
+        "Template": "{file_type}__{duration}__{resolution}",
         "original_name": true,
         "custom_name": true,
         "file_type": true,
@@ -22,7 +22,7 @@
         "modified_tika": true,
         "latitude": true,
         "longitude": true,
-        "parser_warning": false,
+        "parser_warning": true,
         "extension": true
     },
     {
