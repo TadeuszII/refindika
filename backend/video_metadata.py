@@ -1,7 +1,5 @@
 from pathlib import Path
 
-from tika import parser
-
 
 VIDEO_METADATA_FIELDS = {
     "content_type": ["Content-Type", "dc:format", "format"],
@@ -108,6 +106,8 @@ def extract_video_metadata(file_path):
     path = Path(file_path)
 
     try:
+        from tika import parser
+
         parsed = parser.from_file(str(path)) or {}
         metadata = parsed.get("metadata") or {}
 

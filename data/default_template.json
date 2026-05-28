@@ -78,12 +78,28 @@
     {
         "Name": "Default",
         "Type": "word",
-        "Template": "{original_name}_{author}_{title}__{word_count}_{extension}",
+        "Template": "{original_name}_{author}_{title}_{word_count}",
         "original_name": true,
+        "custom_name": true,
+        "file_type": true,
+        "modified": true,
+        "path": true,
         "title": true,
         "author": true,
+        "subject": true,
+        "keywords": true,
+        "description": true,
+        "created": true,
+        "modified_tika": true,
+        "last_author": true,
         "pages": true,
         "word_count": true,
-        "extension": true
+        "character_count": true,
+        "paragraph_count": true,
+        "table_count": true,
+        "application_name": true,
+        "content_type": true,
+        "resource_name": true,
+        "parser_warning": true
     }
 ]

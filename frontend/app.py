@@ -38,6 +38,7 @@ from backend.audio_metadata import AUDIO_METADATA_FIELDS, extract_audio_metadata
 from backend.pdf_metadata import PDF_METADATA_FIELDS, extract_pdf_metadata
 from backend.rename_files import build_unique_path, rename_file, render_custom_name
 from backend.video_metadata import VIDEO_METADATA_FIELDS, extract_video_metadata
+from backend.word_metadata import WORD_METADATA_FIELDS, extract_word_metadata
 from templates_tab import METADATA_BY_TYPE, TemplatesTab, normalize_file_type
 
 
@@ -172,6 +173,10 @@ class ExtractionWorker:
         if self.category == "PDF":
             pdf_metadata = extract_pdf_metadata(path)
             base_record.update(pdf_metadata)
+
+        if self.category == "Word":
+            word_metadata = extract_word_metadata(path)
+            base_record.update(word_metadata)
 
         return base_record
 
@@ -491,15 +496,25 @@ class MainWindow(QMainWindow):
             if any(file["category"] == category for file in self.current_files):
                 self.category_list.addItem(category)
 
-        audio_row = self.find_category_row("Audio")
-        if audio_row is not None:
-            self.category_list.setCurrentRow(audio_row)
-            self.active_category = "Audio"
+        first_category = self.find_first_scanned_category()
+        if first_category is not None:
+            row, category = first_category
+            self.category_list.setCurrentRow(row)
+            self.active_category = category
         else:
             self.category_list.setCurrentRow(0)
             self.active_category = "All files"
 
         self.refresh_table()
+
+    # Funkcja zwraca pierwsza zeskanowana kategorie w panelu bocznym.
+    def find_first_scanned_category(self):
+        for category in FILE_TYPES:
+            row = self.find_category_row(category)
+            if row is not None:
+                return row, category
+
+        return None
 
     # Funkcja dla znalezienia kategorii w lewym panelu.
     def find_category_row(self, category):
@@ -804,6 +819,10 @@ class MainWindow(QMainWindow):
         # -- if plik jest pdf, uzywa aliasow pdf Tika --
         if file_type == "pdf":
             return PDF_METADATA_FIELDS.get(metadata_name, [])
+
+        # -- if plik jest word, uzywa aliasow Word Tika --
+        if file_type == "word":
+            return WORD_METADATA_FIELDS.get(metadata_name, [])
 
         return AUDIO_METADATA_FIELDS.get(metadata_name, [])
 
