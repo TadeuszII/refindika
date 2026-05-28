@@ -10,6 +10,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
 from PyQt6.QtCore import QTimer, pyqtSignal
+from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -35,6 +36,7 @@ from PyQt6.QtWidgets import (
 )
 
 from backend.audio_metadata import AUDIO_METADATA_FIELDS, extract_audio_metadata
+from backend.dublicate_handler import find_duplicate_indexes
 from backend.pdf_metadata import PDF_METADATA_FIELDS, extract_pdf_metadata
 from backend.rename_files import build_unique_path, rename_file, render_custom_name
 from backend.video_metadata import VIDEO_METADATA_FIELDS, extract_video_metadata
@@ -564,6 +566,7 @@ class MainWindow(QMainWindow):
     # Funkcja dla wyswietlania standardowej tabeli All files.
     def show_all_files_table(self, rows):
         self.visible_files = rows
+        duplicate_indexes = find_duplicate_indexes(rows)
         self.files_table.clearContents()
         self.files_table.setColumnCount(5)
         self.files_table.setHorizontalHeaderLabels(
@@ -591,15 +594,16 @@ class MainWindow(QMainWindow):
 
         self.files_table.setRowCount(len(rows))
         for row, file in enumerate(rows):
-            self.files_table.setItem(row, 0, QTableWidgetItem(file["name"]))
-            self.files_table.setItem(row, 1, QTableWidgetItem(file["category"]))
-            self.files_table.setItem(row, 2, QTableWidgetItem(file["modified"]))
-            self.files_table.setItem(row, 3, QTableWidgetItem(file["size"]))
-            self.files_table.setItem(row, 4, QTableWidgetItem(file["path"]))
+            self.set_table_item(row, 0, file["name"], row in duplicate_indexes)
+            self.set_table_item(row, 1, file["category"], row in duplicate_indexes)
+            self.set_table_item(row, 2, file["modified"], row in duplicate_indexes)
+            self.set_table_item(row, 3, file["size"], row in duplicate_indexes)
+            self.set_table_item(row, 4, file["path"], row in duplicate_indexes)
 
     # Funkcja dla wyswietlania tabeli kategorii wedlug aktywnego template.
     def show_category_table(self, rows):
         self.visible_files = rows
+        duplicate_indexes = find_duplicate_indexes(rows)
         metadata_columns = self.get_active_metadata_columns()
         headers = ["Select"] + [
             self.format_header_name(item) for item in metadata_columns
@@ -631,11 +635,23 @@ class MainWindow(QMainWindow):
         # --- Loops wypelnia tabele kategoriami i metadanymi ---
         for row, file in enumerate(rows):
             checkbox = QCheckBox()
+            if row in duplicate_indexes:
+                checkbox.setStyleSheet("background-color: #fff3a3;")
             self.files_table.setCellWidget(row, 0, checkbox)
 
             for index, metadata_name in enumerate(metadata_columns):
                 value = self.get_metadata_value(file, metadata_name)
-                self.files_table.setItem(row, index + 1, QTableWidgetItem(value))
+                self.set_table_item(row, index + 1, value, row in duplicate_indexes)
+
+    # Funkcja dla ustawiania komorki tabeli z kolorem duplikatu.
+    def set_table_item(self, row, column, value, is_duplicate):
+        item = QTableWidgetItem(str(value))
+
+        # -- if plik jest duplikatem, koloruje komorke na zolto --
+        if is_duplicate:
+            item.setBackground(QColor("#fff3a3"))
+
+        self.files_table.setItem(row, column, item)
 
     # Funkcja zaznacza wszystkie widoczne pliki w kategorii.
     def select_all_visible_files(self):
