@@ -50,5 +50,29 @@
         "composer": false,
         "copyright": false,
         "encoder": false
+    },
+    {
+        "Name": "Test_PDF_dublicate_2",
+        "Type": "pdf",
+        "Template": "{original_name}-{custom_name}_{file_type}",
+        "original_name": true,
+        "custom_name": true,
+        "file_type": true,
+        "modified": true,
+        "path": false,
+        "content_type": false,
+        "resource_name": false,
+        "title": false,
+        "author": false,
+        "creator": false,
+        "producer": false,
+        "created": false,
+        "modified_tika": false,
+        "pages": false,
+        "pdf_version": false,
+        "encrypted": false,
+        "word_count": false,
+        "parser_warning": false,
+        "extension": false
     }
 ]
