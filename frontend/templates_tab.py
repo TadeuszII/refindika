@@ -212,10 +212,12 @@ class TemplatesTab(QWidget):
         saved_label.setObjectName("SectionTitle")
         form_layout.addWidget(saved_label)
 
-        self.saved_templates_table = QTableWidget(0, 3)
-        self.saved_templates_table.setHorizontalHeaderLabels(["Name", "Category", "Action"])
+        self.saved_templates_table = QTableWidget(0, 4)
+        self.saved_templates_table.setHorizontalHeaderLabels(
+            ["Name", "Category", "Use", "Delete"]
+        )
         self.setup_compact_table(self.saved_templates_table)
-        self.saved_templates_table.setFixedWidth(370)
+        self.saved_templates_table.setFixedWidth(540)
         self.saved_templates_table.setFixedHeight(180)
         self.saved_templates_table.setAlternatingRowColors(True)
         self.saved_templates_table.setEditTriggers(
@@ -371,14 +373,6 @@ class TemplatesTab(QWidget):
             file_type = template_data["Type"]
             self.active_templates_by_type[file_type] = template_data
 
-        # --- Loops nadpisuje defaulty zapisanymi template uzytkownika ---
-        for template_data in self.templates:
-            file_type = template_data["Type"]
-
-            # -- if template uzytkownika jest poprawny, ustawia go jako aktywny --
-            if self.validate_template(template_data) == []:
-                self.active_templates_by_type[file_type] = template_data
-
     # ---- Funkcja zapisuje templates do pliku json ----
     def save_templates(self):
         self.templates_file.parent.mkdir(parents=True, exist_ok=True)
@@ -401,7 +395,6 @@ class TemplatesTab(QWidget):
             return
 
         self.add_or_update_template(template_data)
-        self.apply_template(template_data)
         self.save_templates()
         self.refresh_templates_table()
         QMessageBox.information(self, "Saved", "Template has been saved.")
@@ -493,29 +486,90 @@ class TemplatesTab(QWidget):
 
         return errors
 
+    # ---- Funkcja sprawdza czy dwa templates maja ta sama nazwe i typ ----
+    def is_same_template(self, first_template, second_template):
+        first_name = first_template.get("Name", first_template.get("name", ""))
+        second_name = second_template.get("Name", second_template.get("name", ""))
+        first_type = first_template.get("Type", first_template.get("file_type", ""))
+        second_type = second_template.get("Type", second_template.get("file_type", ""))
+
+        same_name = first_name.lower() == second_name.lower()
+        same_type = first_type.lower() == second_type.lower()
+        return same_name and same_type
+
     # ---- Funkcja dodaje nowy template albo aktualizuje istniejacy ----
     def add_or_update_template(self, template_data):
         normalized_template = self.normalize_template(template_data)
 
-        # --- Loops szuka template o tym samym typie pliku ---
+        # --- Loops szuka template o tej samej nazwie i typie pliku ---
         for index, saved_template in enumerate(self.templates):
-            saved_type = saved_template.get("Type", saved_template.get("file_type"))
-            same_type = saved_type == normalized_template["Type"]
-
             # -- if aktualizuje istniejacy template --
-            if same_type:
+            if self.is_same_template(saved_template, normalized_template):
                 self.templates[index] = normalized_template
                 return
 
         self.templates.append(normalized_template)
 
+    # ---- Funkcja przywraca default template dla wybranego typu pliku ----
+    def restore_default_template(self, file_type):
+        normalized_type = normalize_file_type(file_type).lower()
+
+        # --- Loops szuka default template dla podanego typu pliku ---
+        for template_data in self.default_templates:
+            if template_data["Type"] == normalized_type:
+                self.active_templates_by_type[normalized_type] = template_data
+                self.selected_template = template_data
+                return
+
+    # ---- Funkcja usuwa template uzytkownika z listy ----
+    def delete_user_template(self, template_data):
+        normalized_template = self.normalize_template(template_data)
+        template_name = normalized_template["Name"]
+        file_type = normalized_template["Type"]
+
+        # -- if blokuje usuwanie default template --
+        if template_name.lower() == "default":
+            QMessageBox.warning(
+                self, "Delete template", "Default templates cannot be deleted."
+            )
+            return
+
+        question = f"Delete template '{template_name}'?"
+        answer = QMessageBox.question(self, "Delete template", question)
+
+        # -- if uzytkownik nie potwierdzil usuwania --
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        self.templates = [
+            saved_template
+            for saved_template in self.templates
+            if not self.is_same_template(saved_template, normalized_template)
+        ]
+
+        active_template = self.active_templates_by_type.get(file_type)
+
+        # -- if usuniety template byl aktywny, przywraca default --
+        if active_template is not None and self.is_same_template(
+            active_template, normalized_template
+        ):
+            self.restore_default_template(file_type)
+
+            if self.template_changed is not None:
+                self.template_changed()
+
+        self.save_templates()
+        self.refresh_templates_table()
+        QMessageBox.information(self, "Deleted", "Template has been deleted.")
+
     # ---- Funkcja odswieza tabele zapisanych templates ----
     def refresh_templates_table(self):
         all_templates = self.default_templates + self.templates
         self.saved_templates_table.setRowCount(len(all_templates))
-        self.saved_templates_table.setColumnWidth(0, 150)
-        self.saved_templates_table.setColumnWidth(1, 90)
-        self.saved_templates_table.setColumnWidth(2, 82)
+        self.saved_templates_table.setColumnWidth(0, 180)
+        self.saved_templates_table.setColumnWidth(1, 100)
+        self.saved_templates_table.setColumnWidth(2, 110)
+        self.saved_templates_table.setColumnWidth(3, 110)
 
         # --- Loops wypelnia tabele zapisanych templates ---
         for row, template_data in enumerate(all_templates):
@@ -529,11 +583,22 @@ class TemplatesTab(QWidget):
 
             use_button = QPushButton("Use")
             use_button.setObjectName("PrimaryButton")
-            use_button.setFixedWidth(64)
+            use_button.setFixedWidth(82)
             use_button.clicked.connect(
                 lambda _checked=False, data=template_data: self.use_saved_template(data)
             )
             self.saved_templates_table.setCellWidget(row, 2, use_button)
+
+            delete_button = QPushButton("Delete")
+            delete_button.setFixedWidth(82)
+            is_default = name.lower() == "default"
+            delete_button.setEnabled(not is_default)
+            delete_button.clicked.connect(
+                lambda _checked=False, data=template_data: self.delete_user_template(
+                    data
+                )
+            )
+            self.saved_templates_table.setCellWidget(row, 3, delete_button)
 
         visible_rows = max(len(all_templates), 1)
         self.set_table_height(self.saved_templates_table, visible_rows)
